@@ -345,10 +345,32 @@ static void watch_port_attr(int fd, struct etcd_cdc_ctx *ctx,
 	}
 }
 
-static void link_port_subsys(char *port_subsys_dir, char *subsysnqn)
+static void add_port_subsys(struct nvmet_port *port, char *subsysnqn)
 {
 	struct nvmet_port_subsys *port_subsys;
 	struct nvmet_subsys *subsys;
+
+	port_subsys = malloc(sizeof(struct nvmet_port_subsys));
+	if (!port_subsys)
+		return;
+	INIT_LIST_HEAD(&port_subsys->entry);
+	port_subsys->port = port;
+	subsys = find_subsys(subsysnqn);
+	if (subsys) {
+		port_subsys->subsys = subsys;
+		list_add(&port_subsys->entry, &port->subsystems);
+		if (debug_inotify)
+			printf("link port %s to subsys %s\n",
+			       port->port_id, subsys->subsysnqn);
+	} else {
+		fprintf(stderr, "subsystm %s not found\n", subsysnqn);
+		free(port_subsys);
+	}
+}
+
+static void link_port_subsys(char *port_subsys_dir, char *subsysnqn)
+{
+	struct nvmet_port_subsys *port_subsys;
 	struct nvmet_port *port;
 	char port_dir[PATH_MAX + 1], *p;
 
@@ -369,16 +391,7 @@ static void link_port_subsys(char *port_subsys_dir, char *subsysnqn)
 			return;
 		}
 	}
-	port_subsys = malloc(sizeof(struct nvmet_port_subsys));
-	if (!port_subsys)
-		return;
-	INIT_LIST_HEAD(&port_subsys->entry);
-	port_subsys->port = port;
-	subsys = find_subsys(subsysnqn);
-	if (subsys) {
-		port_subsys->subsys = subsys;
-		list_add(&port_subsys->entry, &port->subsystems);
-	}
+	add_port_subsys(port, subsysnqn);
 }
 	
 static void watch_port(int fd, struct etcd_cdc_ctx *ctx,
@@ -425,31 +438,42 @@ static void watch_port(int fd, struct etcd_cdc_ctx *ctx,
 		return;
 	}
 	while ((se = readdir(sd))) {
-		struct nvmet_port_subsys *port_subsys;
-		struct nvmet_subsys *subsys;
-
 		if (!strcmp(se->d_name, ".") ||
 		    !strcmp(se->d_name, ".."))
 			continue;
-		port_subsys = malloc(sizeof(struct nvmet_port_subsys));
-		if (!port_subsys)
-			continue;
-		INIT_LIST_HEAD(&port_subsys->entry);
-		port_subsys->port = port;
-		subsys = find_subsys(se->d_name);
-		if (subsys) {
-			port_subsys->subsys = subsys;
-			list_add(&port_subsys->entry, &port->subsystems);
-		}
+		add_port_subsys(port, se->d_name);
 	}
 	closedir(sd);
+}
+
+static void add_subsys_host(struct nvmet_subsys *subsys, char *hostnqn)
+{
+	struct nvmet_subsys_host *subsys_host;
+	struct nvmet_host *host;
+
+  	subsys_host = malloc(sizeof(struct nvmet_subsys_host));
+	if (!subsys_host) {
+		fprintf(stderr, "Cannot allocate %s\n", hostnqn);
+		return;
+	}
+	INIT_LIST_HEAD(&subsys_host->entry);
+	subsys_host->subsys = subsys;
+	host = find_host(hostnqn);
+	if (host) {
+		subsys_host->host = host;
+		list_add(&subsys_host->entry, &subsys->hosts);
+		if (debug_inotify)
+		  printf("link host %s to subsys %s\n",
+			 host->hostnqn, subsys->subsysnqn);
+	} else {
+		free(subsys_host);
+	}
 }
 
 static void link_subsys_host(char *hosts_dir, char *hostnqn)
 {
 	struct nvmet_subsys_host *subsys_host;
 	struct nvmet_subsys *subsys;
-	struct nvmet_host *host;
 	char host_dir[PATH_MAX + 1], *p;
 
 	strcpy(host_dir, hosts_dir);
@@ -468,20 +492,7 @@ static void link_subsys_host(char *hosts_dir, char *hostnqn)
 			return;
 		}
 	}
-	subsys_host = malloc(sizeof(struct nvmet_subsys_host));
-	if (!subsys_host) {
-		fprintf(stderr, "Cannot allocate %s\n", hostnqn);
-		return;
-	}
-	INIT_LIST_HEAD(&subsys_host->entry);
-	subsys_host->subsys = subsys;
-	host = find_host(hostnqn);
-	if (host) {
-		subsys_host->host = host;
-		list_add(&subsys_host->entry, &subsys->hosts);
-	} else {
-		free(subsys_host);
-	}
+	add_subsys_host(subsys, hostnqn);
 }
 
 static void watch_subsys(int fd, struct etcd_cdc_ctx *ctx,
@@ -523,24 +534,7 @@ static void watch_subsys(int fd, struct etcd_cdc_ctx *ctx,
 		if (!strcmp(ae->d_name, ".") ||
 		    !strcmp(ae->d_name, ".."))
 			continue;
-		struct nvmet_subsys_host *subsys_host;
-		struct nvmet_host *host;
-
-		if (!strcmp(ae->d_name, ".") ||
-		    !strcmp(ae->d_name, ".."))
-			continue;
-		subsys_host = malloc(sizeof(struct nvmet_subsys_host));
-		if (!subsys_host)
-			continue;
-		INIT_LIST_HEAD(&subsys_host->entry);
-		subsys_host->subsys = subsys;
-		host = find_host(ae->d_name);
-		if (host) {
-			subsys_host->host = host;
-			list_add(&subsys_host->entry, &subsys->hosts);
-		} else {
-			free(subsys_host);
-		}
+		add_subsys_host(subsys, ae->d_name);
 	}
 	closedir(ad);
 }
