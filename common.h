@@ -22,7 +22,6 @@
 #include "list.h"
 #include "nvme.h"
 #include "nvme_tcp.h"
-#include "etcd_client.h"
 
 extern int			 debug;
 extern char			*hostnqn;
@@ -124,25 +123,41 @@ struct nsdev {
 	uuid_t uuid;
 };
 
-struct host_iface {
+struct interface {
 	struct list_head node;
 	pthread_t pthread;
 	struct etcd_cdc_ctx *ctx;
 	struct list_head ep_list;
 	pthread_mutex_t ep_mutex;
-	char address[41];
-	int port_num;
-	int adrfam;
-	int portid;
+	struct nvmet_port *port;
+	int port_addr;
 	int listenfd;
 	unsigned char *tls_key;
 	size_t tls_key_len;
+};
+
+struct etcd_cdc_ctx {
+	char *proto;
+	char *host;
+	int port;
+	char *hostnqn;
+	char *configfs;
+	char *prefix;
+	int genctr;
+	int ttl;
+	int debug;
+	bool disconnect_ctrls;
 };
 
 extern int tcp_debug;
 extern char *discovery_nqn;
 extern struct list_head subsys_linked_list;
 extern struct list_head iface_linked_list;
+
+static inline void gen_disc_aen(struct etcd_cdc_ctx *ctx)
+{
+	ctx->genctr++;
+}
 
 static inline void set_response(struct nvme_completion *resp,
 				__u16 ccid, __u16 status, bool dnr)
