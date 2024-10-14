@@ -165,31 +165,6 @@ static struct nvmet_host *find_host(char *hostnqn)
 	return NULL;
 }
 
-static struct nvmet_subsys *find_subsys_from_host(char *subsys_host_dir)
-{
-	char subnqn[256], *p;
-
-	p = strchr(subsys_host_dir, '/');
-	do {
-		if (!p)
-			break;
-		p++;
-		if (!strncmp(p, "subsystems", 10)) {
-			strncpy(subnqn, p + 11, 256);
-			break;
-		}
-	} while ((p = strchr(p, '/')));
-	if (!strlen(subnqn)) {
-		fprintf(stderr, "Invalid subsys path %s\n", subsys_host_dir);
-		return NULL;
-	}
-	p = strchr(subnqn, '/');
-	if (p)
-		*p = '\0';
-
-	return find_subsys(subnqn);
-}
-
 static struct dir_watcher *add_watch(int fd, struct dir_watcher *watcher,
 				     int flags)
 {
@@ -620,8 +595,6 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 {
 	struct inotify_event *ev;
 	struct dir_watcher *tmp_watcher, *watcher = NULL;
-	struct nvmet_subsys_host *host;
-	struct nvmet_port_subsys *subsys;
 	int ev_len;
 
 	ev = (struct inotify_event *)iev_buf;
