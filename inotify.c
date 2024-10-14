@@ -431,8 +431,8 @@ static void watch_port(int fd, struct etcd_cdc_ctx *ctx,
 	closedir(sd);
 }
 
-static void watch_subsys_hosts(int fd, struct etcd_cdc_ctx *ctx,
-			       char *hosts_dir, char *hostnqn)
+static void watch_subsys_host(int fd, struct etcd_cdc_ctx *ctx,
+			      char *hosts_dir, char *hostnqn)
 {
 	struct nvmet_subsys_host *host;
 	struct dir_watcher *watcher;
@@ -461,8 +461,10 @@ static void watch_subsys(int fd, struct etcd_cdc_ctx *ctx,
 			 char *subsys_dir, char *subnqn)
 {
 	struct nvmet_subsys *subsys;
-	char dir[PATH_MAX + 1];
 	struct dir_watcher *watcher;
+	char ah_dir[PATH_MAX + 1];
+	DIR *ad;
+	struct dirent *ae;
 
 	subsys = malloc(sizeof(struct nvmet_subsys));
 	if (!subsys)
@@ -480,10 +482,22 @@ static void watch_subsys(int fd, struct etcd_cdc_ctx *ctx,
 		}
 	}
 
-	sprintf(dir, "%s/%s/allowed_hosts",
+	sprintf(ah_dir, "%s/%s/allowed_hosts",
 		subsys_dir, subnqn);
-	watch_directory(fd, dir, TYPE_SUBSYS_HOSTS_DIR,
+	watch_directory(fd, ah_dir, TYPE_SUBSYS_HOSTS_DIR,
 			IN_CREATE | IN_DELETE | IN_DELETE_SELF);
+	ad = opendir(ah_dir);
+	if (!ad) {
+		fprintf(stderr, "Cannot open %s\n", ah_dir);
+		return;
+	}
+	while ((ae = readdir(ad))) {
+		if (!strcmp(ae->d_name, ".") ||
+		    !strcmp(ae->d_name, ".."))
+			continue;
+		watch_subsys_host(fd, ctx, ah_dir, ae->d_name);
+	}
+	closedir(ad);
 }
 
 static void
@@ -581,7 +595,7 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 			watch_subsys(fd, ctx, watcher->dirname, ev->name);
 			break;
 		case TYPE_SUBSYS_HOSTS_DIR:
-			watch_subsys_hosts(fd, ctx, watcher->dirname, ev->name);
+			watch_subsys_host(fd, ctx, watcher->dirname, ev->name);
 			break;
 		default:
 			fprintf(stderr, "Unhandled create type %d\n",
