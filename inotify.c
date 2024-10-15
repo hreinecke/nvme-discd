@@ -963,13 +963,34 @@ void cleanup_watcher(int fd)
 	}
 }
 
-void inotify_loop(struct etcd_cdc_ctx *ctx,
-		  int inotify_fd, int signal_fd)
+void inotify_loop(struct etcd_cdc_ctx *ctx)
 {
+	sigset_t sigmask;
+	int inotify_fd, signal_fd;
 	fd_set rfd;
 	struct timeval tmo;
 	char event_buffer[INOTIFY_BUFFER_SIZE]
 		__attribute__ ((aligned(__alignof__(struct inotify_event))));
+
+	sigemptyset(&sigmask);
+	sigaddset(&sigmask, SIGINT);
+	sigaddset(&sigmask, SIGTERM);
+
+	if (sigprocmask(SIG_BLOCK, &sigmask, NULL) < 0) {
+		fprintf(stderr, "Couldn't block signals, error %d\n", errno);
+		return;
+	}
+	signal_fd = signalfd(-1, &sigmask, 0);
+	if (signal_fd < 0) {
+		fprintf(stderr, "Couldn't setup signal fd, error %d\n", errno);
+		return;
+	}
+	inotify_fd = inotify_init();
+	if (inotify_fd < 0) {
+		fprintf(stderr, "Could not setup inotify, error %d\n", errno);
+		close(signal_fd);
+		return;
+	}
 
 	watch_hosts_dir(inotify_fd, ctx);
 	watch_subsys_dir(inotify_fd, ctx);
@@ -1038,5 +1059,8 @@ void inotify_loop(struct etcd_cdc_ctx *ctx,
 		}
 	}
 	cleanup_watcher(inotify_fd);
+
+	close(inotify_fd);
+	close(signal_fd);
 }
 

@@ -40,12 +40,7 @@
 
 static char *default_configfs = "/sys/kernel/config/nvmet";
 
-#define INOTIFY_BUFFER_SIZE 8192
-
-int inotify_fd;
-static int signal_fd;
-
-void inotify_loop(struct etcd_cdc_ctx *, int, int);
+void inotify_loop(struct etcd_cdc_ctx *);
 
 int parse_opts(struct etcd_cdc_ctx *ctx, int argc, char *argv[])
 {
@@ -88,7 +83,6 @@ int parse_opts(struct etcd_cdc_ctx *ctx, int argc, char *argv[])
 int main (int argc, char *argv[])
 {
 	struct etcd_cdc_ctx *ctx;
-	sigset_t sigmask;
 
 	ctx = malloc(sizeof(*ctx));
 	if (!ctx) {
@@ -97,37 +91,13 @@ int main (int argc, char *argv[])
 	}
 	ctx->configfs = default_configfs;
 	ctx->ttl = 10;
+	ctx->genctr = 1;
 
 	parse_opts(ctx, argc, argv);
 
-	sigemptyset(&sigmask);
-	sigaddset(&sigmask, SIGINT);
-	sigaddset(&sigmask, SIGTERM);
 
-	if (sigprocmask(SIG_BLOCK, &sigmask, NULL) < 0) {
-		fprintf(stderr, "Couldn't block signals, error %d\n", errno);
-		free(ctx);
-		exit(1);
-	}
-	signal_fd = signalfd(-1, &sigmask, 0);
-	if (signal_fd < 0) {
-		fprintf(stderr, "Couldn't setup signal fd, error %d\n", errno);
-		free(ctx);
-		exit(1);
-	}
-	inotify_fd = inotify_init();
-	if (inotify_fd < 0) {
-		fprintf(stderr, "Could not setup inotify, error %d\n", errno);
-		free(ctx);
-		exit(1);
-	}
+	inotify_loop(ctx);
 
-	ctx->genctr = 1;
-
-	inotify_loop(ctx, inotify_fd, signal_fd);
-
-	close(inotify_fd);
-	close(signal_fd);
 	free(ctx);
 	return 0;
 }
