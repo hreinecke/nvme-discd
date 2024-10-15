@@ -96,6 +96,7 @@ int main (int argc, char *argv[])
 		exit(1);
 	}
 	ctx->configfs = default_configfs;
+	ctx->ttl = 10;
 
 	parse_opts(ctx, argc, argv);
 
@@ -105,16 +106,19 @@ int main (int argc, char *argv[])
 
 	if (sigprocmask(SIG_BLOCK, &sigmask, NULL) < 0) {
 		fprintf(stderr, "Couldn't block signals, error %d\n", errno);
+		free(ctx);
 		exit(1);
 	}
 	signal_fd = signalfd(-1, &sigmask, 0);
 	if (signal_fd < 0) {
 		fprintf(stderr, "Couldn't setup signal fd, error %d\n", errno);
+		free(ctx);
 		exit(1);
 	}
 	inotify_fd = inotify_init();
 	if (inotify_fd < 0) {
 		fprintf(stderr, "Could not setup inotify, error %d\n", errno);
+		free(ctx);
 		exit(1);
 	}
 
@@ -124,5 +128,6 @@ int main (int argc, char *argv[])
 
 	close(inotify_fd);
 	close(signal_fd);
+	free(ctx);
 	return 0;
 }

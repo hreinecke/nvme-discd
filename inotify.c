@@ -165,6 +165,41 @@ static struct nvmet_host *find_host(char *hostnqn)
 	return NULL;
 }
 
+static struct nvmet_port *port_from_port_subsys_dir(char *dir)
+{
+	char port_dir[PATH_MAX + 1], *p;
+
+	strcpy(port_dir, dir);
+	p = strrchr(port_dir, '/');
+	if (!p) {
+		if (debug_inotify)
+			fprintf(stderr, "invalid directory %s\n", dir);
+		return NULL;
+	}
+	*p = '\0';
+	return find_port(port_dir);
+}
+
+static struct nvmet_subsys *subsys_from_subsys_host_dir(char *dir)
+{
+	char subsys_dir[PATH_MAX + 1], *p, *subsysnqn;
+
+	strcpy(subsys_dir, dir);
+	p = strrchr(subsys_dir, '/');
+	if (!p) {
+		fprintf(stderr, "%s: invalid directory %s\n", __func__, dir);
+		return NULL;
+	}
+	*p = '\0';
+	subsysnqn = strrchr(subsys_dir, '/');
+	if (!subsysnqn) {
+		fprintf(stderr, "%s: invalid directory %s\n", __func__, dir);
+		return NULL;
+	}
+	subsysnqn++;
+	return find_subsys(subsysnqn);
+}
+
 static struct dir_watcher *add_watch(int fd, struct dir_watcher *watcher,
 				     int flags)
 {
@@ -198,6 +233,12 @@ static struct dir_watcher *add_watch(int fd, struct dir_watcher *watcher,
 static int remove_watch(int fd, struct dir_watcher *watcher)
 {
 	int ret;
+	struct nvmet_host *host;
+	struct nvmet_port *port;
+	struct nvmet_port_attr *port_attr;
+	struct nvmet_subsys *subsys;
+	struct nvmet_port_subsys *port_subsys, *tmp_p;
+	struct nvmet_subsys_host *subsys_host, *tmp_s;
 
 	ret = inotify_rm_watch(fd, watcher->wd);
 	if (ret < 0)
@@ -207,6 +248,77 @@ static int remove_watch(int fd, struct dir_watcher *watcher)
 		printf("remove inotify watch %d type %d from '%s'\n",
 		       watcher->wd, watcher->type, watcher->dirname);
 	list_del_init(&watcher->entry);
+
+	switch (watcher->type) {
+	case TYPE_HOST:
+		host = container_of(watcher,
+				    struct nvmet_host,
+				    watcher);
+		free(host);
+		break;
+	case TYPE_PORT:
+		port = container_of(watcher,
+				    struct nvmet_port,
+				    watcher);
+		free(port);
+		break;
+	case TYPE_PORT_SUBSYS_DIR:
+		port = port_from_port_subsys_dir(watcher->dirname);
+		if (!port) {
+			fprintf(stderr, "invalid port subsys dir %s\n",
+				watcher->dirname);
+			free(watcher);
+			break;
+		}
+		list_for_each_entry_safe(port_subsys, tmp_p,
+					 &port->subsystems, entry) {
+			if (debug_inotify)
+				printf("unlink subsys %s from port %s\n",
+				       port_subsys->subsys->subsysnqn,
+				       port->port_id);
+			list_del_init(&port_subsys->entry);
+			free(port_subsys);
+		}
+		free(watcher);
+		break;
+	case TYPE_PORT_ATTR:
+		port_attr = container_of(watcher,
+					 struct nvmet_port_attr,
+					 watcher);
+		free(port_attr);
+		break;
+	case TYPE_SUBSYS:
+		subsys = container_of(watcher,
+				      struct nvmet_subsys,
+				      watcher);
+		free(subsys);
+		break;
+	case TYPE_SUBSYS_HOSTS_DIR:
+		subsys = subsys_from_subsys_host_dir(watcher->dirname);
+		if (!subsys) {
+			fprintf(stderr, "invalid subsys host dir %s\n",
+				watcher->dirname);
+			free(watcher);
+			break;
+		}
+		list_for_each_entry_safe(subsys_host, tmp_s,
+					 &subsys->hosts, entry) {
+			if (debug_inotify)
+				printf("unlink host %s from subsys %s\n",
+				       subsys_host->host->hostnqn,
+				       subsys->subsysnqn);
+			list_del_init(&subsys_host->entry);
+			free(subsys_host);
+		}
+		free(watcher);
+		break;
+	default:
+		if (debug_inotify)
+			printf("free inotify type %d from %s\n",
+			       watcher->type, watcher->dirname);
+		free(watcher);
+		break;
+	}
 	return ret;
 }
 
@@ -372,15 +484,10 @@ static void link_port_subsys(char *port_subsys_dir, char *subsysnqn)
 {
 	struct nvmet_port_subsys *port_subsys;
 	struct nvmet_port *port;
-	char port_dir[PATH_MAX + 1], *p;
 
-	strcpy(port_dir, port_subsys_dir);
-	p = strrchr(port_dir, '/');
-	if (!p)
-		return;
-	port = find_port(p);
+	port = port_from_port_subsys_dir(port_subsys_dir);
 	if (!port) {
-		fprintf(stderr, "Port not found for %s\n", p);
+		fprintf(stderr, "Port not found for %s\n", port_subsys_dir);
 		return;
 	}
 	list_for_each_entry(port_subsys, &port->subsystems, entry) {
@@ -463,8 +570,8 @@ static void add_subsys_host(struct nvmet_subsys *subsys, char *hostnqn)
 		subsys_host->host = host;
 		list_add(&subsys_host->entry, &subsys->hosts);
 		if (debug_inotify)
-		  printf("link host %s to subsys %s\n",
-			 host->hostnqn, subsys->subsysnqn);
+			printf("link host %s to subsys %s\n",
+			       host->hostnqn, subsys->subsysnqn);
 	} else {
 		free(subsys_host);
 	}
@@ -671,6 +778,10 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 			break;
 		}
 	} else if (ev->mask & IN_DELETE) {
+		struct nvmet_port *port;
+		struct nvmet_port_subsys *port_subsys, *tmp_p;
+		struct nvmet_subsys *subsys;
+		struct nvmet_subsys_host *subsys_host, *tmp_s;
 		char subdir[FILENAME_MAX + 1];
 
 		sprintf(subdir, "%s", watcher->dirname);
@@ -680,15 +791,64 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 			else
 				printf("unlink %s %s\n", subdir, ev->name);
 		}
-		if (watcher) {
-			remove_watch(fd, watcher);
-			switch (watcher->type) {
-			default:
-				fprintf(stderr, "Unhandled delete type %d\n",
-					watcher->type);
+		switch (watcher->type) {
+		case TYPE_PORT_SUBSYS_DIR:
+			port = port_from_port_subsys_dir(watcher->dirname);
+			if (!port) {
+				fprintf(stderr, "Port not found for dir %s\n",
+					watcher->dirname);
 				free(watcher);
 				break;
 			}
+			list_for_each_entry(tmp_p, &port->subsystems, entry) {
+				if (!strcmp(tmp_p->subsys->subsysnqn,
+					    ev->name)) {
+					port_subsys = tmp_p;
+					break;
+				}
+			}
+			if (!port_subsys) {
+				fprintf(stderr, "port_subsys %s not found\n",
+					ev->name);
+				free(watcher);
+			} else {
+				if (debug_inotify)
+					printf("unlink subsys %s from port %s\n",
+					       ev->name, port->port_id);
+				list_del_init(&port_subsys->entry);
+				free(port_subsys);
+			}
+			break;
+		case TYPE_SUBSYS_HOSTS_DIR:
+			subsys = subsys_from_subsys_host_dir(watcher->dirname);
+			if (!subsys) {
+				fprintf(stderr, "subsys not found for dir %s\n",
+					watcher->dirname);
+				free(watcher);
+				break;
+			}
+			list_for_each_entry(tmp_s, &subsys->hosts, entry) {
+				if (!strcmp(tmp_s->host->hostnqn,
+					    ev->name)) {
+					subsys_host = tmp_s;
+					break;
+				}
+			}
+			if (!subsys_host) {
+				fprintf(stderr, "subsys_host %s not found\n",
+					ev->name);
+				free(watcher);
+			} else {
+				if (debug_inotify)
+					printf("unlink host %s from subsys %s\n",
+					       ev->name, subsys->subsysnqn);
+				list_del_init(&subsys_host->entry);
+				free(subsys_host);
+			}
+			break;
+		default:
+			remove_watch(fd, watcher);
+			break;
 		}
 	} else if (ev->mask & IN_MODIFY) {
 		struct nvmet_port_attr *port_attr;
@@ -800,7 +960,6 @@ void cleanup_watcher(int fd)
 
     	list_for_each_entry_safe(watcher, tmp_watch, &dir_watcher_list, entry) {
 		remove_watch(fd, watcher);
-		free(watcher);
 	}
 }
 
