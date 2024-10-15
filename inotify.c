@@ -241,6 +241,8 @@ static struct dir_watcher *add_watch(int fd, struct dir_watcher *watcher,
 			continue;
 		if (strcmp(tmp->dirname, watcher->dirname))
 			continue;
+		if (tmp->wd < 0)
+			continue;
 		if (debug_inotify)
 			printf("re-use inotify watch %d type %d for %s\n",
 			       watcher->wd, watcher->type, watcher->dirname);
