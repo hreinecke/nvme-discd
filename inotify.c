@@ -84,26 +84,12 @@ struct nvmet_port {
 	char tsas[256];
 };
 
-/* TYPE_PORT_ATTR */
-struct nvmet_port_attr {
-	struct dir_watcher watcher;
-	struct nvmet_port *port;
-	char attr[256];
-};
-
 /* TYPE_SUBSYS */
 struct nvmet_subsys {
 	struct dir_watcher watcher;
 	struct list_head hosts;
 	char subsysnqn[256];
 	int allow_any;
-};
-
-/* TYPE_SUBSYS_ATTR */
-struct nvmet_subsys_attr {
-	struct dir_watcher watcher;
-	struct nvmet_subsys *subsys;
-	char attr[256];
 };
 
 /* TYPE_PORT_SUBSYS */
@@ -182,29 +168,6 @@ static struct nvmet_subsys *find_subsys(char *subnqn)
 	return NULL;
 }
 
-static struct nvmet_subsys_attr *find_subsys_attr(struct nvmet_subsys *subsys,
-						  char *attr)
-{
-	struct dir_watcher *watcher;
-	struct nvmet_subsys_attr *subsys_attr;
-
-	list_for_each_entry(watcher, &dir_watcher_list, entry) {
-		if (watcher->type != TYPE_SUBSYS_ATTR)
-			continue;
-		subsys_attr = container_of(watcher, struct nvmet_subsys_attr,
-					   watcher);
-		if (subsys_attr->subsys != subsys)
-			continue;
-		if (strcmp(subsys_attr->attr, attr))
-			continue;
-		return subsys_attr;
-	}
-	if (debug_inotify)
-		printf("Subsys attribute %s/%s not found\n",
-		       subsys->subsysnqn, attr);
-	return NULL;
-}
-
 static struct nvmet_host *find_host(char *hostnqn)
 {
 	struct dir_watcher *watcher;
@@ -259,11 +222,13 @@ static struct nvmet_subsys *subsys_from_subsys_host_dir(char *dir)
 	return find_subsys(subsysnqn);
 }
 
-static int attr_read_int(char *attr_path, int *v)
+static int attr_read_int(char *path, char *attr, int *v)
 {
+	char attr_path[PATH_MAX + 1];
 	char attr_buf[256], *p;
 	int fd, len, val;
 
+	sprintf(attr_path, "%s/%s", path, attr);
 	fd = open(attr_path, O_RDONLY);
 	if (fd < 0) {
 		fprintf(stderr, "Failed to open '%s', error %d\n",
@@ -321,9 +286,7 @@ static int remove_watch(int fd, struct dir_watcher *watcher)
 	int ret;
 	struct nvmet_host *host;
 	struct nvmet_port *port;
-	struct nvmet_port_attr *port_attr;
 	struct nvmet_subsys *subsys;
-	struct nvmet_subsys_attr *subsys_attr;
 	struct nvmet_port_subsys *port_subsys, *tmp_p;
 	struct nvmet_subsys_host *subsys_host, *tmp_s;
 
@@ -368,12 +331,6 @@ static int remove_watch(int fd, struct dir_watcher *watcher)
 		}
 		free(watcher);
 		break;
-	case TYPE_PORT_ATTR:
-		port_attr = container_of(watcher,
-					 struct nvmet_port_attr,
-					 watcher);
-		free(port_attr);
-		break;
 	case TYPE_SUBSYS:
 		subsys = container_of(watcher,
 				      struct nvmet_subsys,
@@ -383,13 +340,6 @@ static int remove_watch(int fd, struct dir_watcher *watcher)
 				watcher->dirname);
 			free(watcher);
 			break;
-		}
-		subsys_attr = find_subsys_attr(subsys, "allow_any_host");
-		if (subsys_attr) {
-			if (debug_inotify)
-				printf("remove subsys attr %s/%s\n",
-				       subsys->subsysnqn, "allow_any_host");
-			free(subsys_attr);
 		}
 		free(subsys);
 		break;
@@ -534,29 +484,6 @@ static struct nvmet_port *update_port(char *ports_dir, char *port_id)
 	return port;
 }
 
-static void watch_port_attr(int fd, struct etcd_cdc_ctx *ctx,
-			    struct nvmet_port *port, char *attr)
-{
-	struct nvmet_port_attr *port_attr;
-	struct dir_watcher *watcher;
-
-	port_attr = malloc(sizeof(struct nvmet_port_attr));
-	if (!port_attr) {
-		fprintf(stderr, "Failed to allocate port attr watch\n");
-		return;
-	}
-	strcpy(port_attr->attr, attr);
-	port_attr->port = port;
-	sprintf(port_attr->watcher.dirname, "%s/addr_%s",
-		port->watcher.dirname, attr);
-	port_attr->watcher.type = TYPE_PORT_ATTR;
-	watcher = add_watch(fd, &port_attr->watcher, IN_MODIFY);
-	if (watcher) {
-		if (watcher == &port_attr->watcher)
-			free(port_attr);
-	}
-}
-
 static void add_port_subsys(struct nvmet_port *port, char *subsysnqn)
 {
 	struct nvmet_port_subsys *port_subsys;
@@ -607,32 +534,20 @@ static void watch_port(int fd, struct etcd_cdc_ctx *ctx,
 	struct nvmet_port *port;
 	struct dir_watcher *watcher;
 	char subsys_dir[PATH_MAX + 1];
-	DIR *pd, *sd;
-	struct dirent *pe, *se;
+	DIR *sd;
+	struct dirent *se;
 
 	port = update_port(ports_dir, port_id);
 	if (!port)
 		return;
 
 	port->watcher.type = TYPE_PORT;
-	watcher = add_watch(fd, &port->watcher, IN_DELETE_SELF);
+	watcher = add_watch(fd, &port->watcher, IN_MODIFY | IN_DELETE_SELF);
 	if (watcher) {
 		if (watcher == &port->watcher)
 			free(port);
 		return;
 	}
-
-	pd = opendir(port->watcher.dirname);
-	if (!pd) {
-		fprintf(stderr, "Cannot open %s\n", port->watcher.dirname);
-		return;
-	}
-	while((pe = readdir(pd))) {
-		if (strncmp(pe->d_name, "addr_", 5))
-			continue;
-		watch_port_attr(fd, ctx, port, pe->d_name + 5);
-	}
-	closedir(pd);
 
 	strcpy(subsys_dir, port->watcher.dirname);
 	strcat(subsys_dir, "/subsystems");
@@ -711,7 +626,6 @@ static void watch_subsys(int fd, struct etcd_cdc_ctx *ctx,
 			 char *subsys_dir, char *subnqn)
 {
 	struct nvmet_subsys *subsys;
-	struct nvmet_subsys_attr *allow_any;
 	struct dir_watcher *watcher;
 	char ah_dir[PATH_MAX + 1];
 	DIR *ad;
@@ -726,7 +640,7 @@ static void watch_subsys(int fd, struct etcd_cdc_ctx *ctx,
 	sprintf(subsys->watcher.dirname, "%s/%s",
 		subsys_dir, subnqn);
 	subsys->watcher.type = TYPE_SUBSYS;
-	watcher = add_watch(fd, &subsys->watcher, IN_DELETE_SELF);
+	watcher = add_watch(fd, &subsys->watcher, IN_MODIFY | IN_DELETE_SELF);
 	if (watcher) {
 		if (watcher == &subsys->watcher) {
 			free(subsys);
@@ -734,25 +648,11 @@ static void watch_subsys(int fd, struct etcd_cdc_ctx *ctx,
 		}
 	}
 
-	allow_any = malloc(sizeof(struct nvmet_subsys_attr));
-	if (!allow_any)
-		return;
-	allow_any->subsys = subsys;
-	strcpy(allow_any->attr, "allow_any_host");
-	sprintf(allow_any->watcher.dirname, "%s/%s/attr_%s",
-		subsys_dir, subnqn, allow_any->attr);
-	allow_any->watcher.type = TYPE_SUBSYS_ATTR;
-	if (attr_read_int(allow_any->watcher.dirname, &subsys->allow_any) < 0) {
-		fprintf(stderr, "failed to read %s\n",
-			allow_any->watcher.dirname);
-		free(allow_any);
-	} else {
-		watcher = add_watch(fd, &allow_any->watcher,
-				    IN_MODIFY);
-		if (watcher) {
-			if (watcher == &allow_any->watcher)
-				free(allow_any);
-		}
+	if (attr_read_int(subsys->watcher.dirname,
+			  "attr_allow_any_host",
+			  &subsys->allow_any) < 0) {
+		fprintf(stderr, "failed to read %s attr_allow_any_host\n",
+			subsys->subsysnqn);
 	}
 
 	sprintf(ah_dir, "%s/%s/allowed_hosts",
@@ -876,7 +776,6 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 	} else if (ev->mask & IN_DELETE_SELF) {
 		struct nvmet_port *port;
 		struct nvmet_subsys *subsys;
-		struct nvmet_subsys_attr *subsys_attr;
 		struct nvmet_host *host;
 
 		if (debug_inotify)
@@ -894,16 +793,7 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 		case TYPE_SUBSYS:
 			subsys = container_of(watcher,
 					      struct nvmet_subsys, watcher);
-			subsys_attr = find_subsys_attr(subsys,
-						       "allow_any_host");
-			if (subsys_attr) {
-				if (debug_inotify)
-					printf("remove subsys attr %s/%s\n",
-					       subsys->subsysnqn,
-					       "allow_any_host");
-				list_del_init(&subsys_attr->watcher.entry);
-				free(subsys_attr);
-			}
+
 			watcher = find_watcher(TYPE_SUBSYS_HOSTS_DIR,
 					       subsys->watcher.dirname,
 					       "allowed_hosts");
@@ -999,52 +889,44 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 			break;
 		}
 	} else if (ev->mask & IN_MODIFY) {
-		struct nvmet_port_attr *port_attr;
+		struct nvmet_port *port;
 		struct nvmet_subsys *subsys;
-		struct nvmet_subsys_attr *subsys_attr;
 
 		if (debug_inotify)
 			printf("write %s %s\n", watcher->dirname, ev->name);
 
 		switch (watcher->type) {
-		case TYPE_PORT_ATTR:
-			port_attr = container_of(watcher,
-						 struct nvmet_port_attr,
-						 watcher);
-			if (!port_attr->port) {
-				fprintf(stderr, "No port link for %s %s\n",
-					watcher->dirname, port_attr->attr);
-				break;
+		case TYPE_PORT:
+			port = container_of(watcher,
+					    struct nvmet_port,
+					    watcher);
+			if (!strncmp(ev->name, "addr_", 5)) {
+				port_read_attr(port, ev->name + 5);
+			} else {
+				fprintf(stderr, "invalid port attribute %s\n",
+					ev->name + 5);
 			}
-			port_read_attr(port_attr->port, port_attr->attr);
-			gen_disc_aen(ctx);
 			break;
-		case TYPE_SUBSYS_ATTR:
-			subsys_attr = container_of(watcher,
-						   struct nvmet_subsys_attr,
-						   watcher);
-			if (!subsys_attr->subsys) {
-				fprintf(stderr, "no subsystem for %s\n",
-					watcher->dirname);
-				break;
-			}
-			subsys = subsys_attr->subsys;
-			if (!strcmp(subsys_attr->attr, "allow_any_host")) {
-				if (attr_read_int(subsys_attr->watcher.dirname,
+		case TYPE_SUBSYS:
+			subsys = container_of(watcher,
+					      struct nvmet_subsys,
+					      watcher);
+			if (!strncmp(ev->name, "attr_allow_any_host", 19)) {
+				if (attr_read_int(subsys->watcher.dirname,
+						  "attr_allow_any_host",
 						  &subsys->allow_any) < 0)
 					fprintf(stderr, "failed to read %s\n",
-						subsys_attr->watcher.dirname);
+						subsys->watcher.dirname);
 			} else {
 				if (debug_inotify)
 					printf("unknown attribute %s/%s\n",
 					       subsys->subsysnqn,
-					       subsys_attr->attr);
+					       ev->name);
 			}
 			break;
 		default:
 			fprintf(stderr, "unhandled modify type %d\n",
 				watcher->type);
-			free(watcher);
 			break;
 		}
 	}
