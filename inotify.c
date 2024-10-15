@@ -106,30 +106,20 @@ struct nvmet_subsys_host {
 	struct nvmet_host *host;
 };
 
-static struct dir_watcher *find_watcher(enum watcher_type type,
-					char *dir, char *name)
+static struct dir_watcher *find_watcher(enum watcher_type type, char *path)
 {
 	struct dir_watcher *watcher;
 
 	list_for_each_entry(watcher, &dir_watcher_list, entry) {
-		char *p;
-
 		if (watcher->type != type)
 			continue;
 		if (debug_inotify)
 			printf("checking %s\n", watcher->dirname);
-		if (strncmp(watcher->dirname, dir, strlen(dir)))
-			continue;
-		p = strrchr(watcher->dirname, '/');
-		if (!p)
-			continue;
-		p++;
-		if (strcmp(p, name))
+		if (strcmp(watcher->dirname, path))
 			continue;
 		return watcher;
 	}
-	fprintf(stderr, "No watcher found for type %d dir %s/%s\n",
-		type, dir, name);
+	fprintf(stderr, "No watcher found for type %d dir %s\n", type, path);
 	return NULL;
 }
 
@@ -777,6 +767,7 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 		struct nvmet_port *port;
 		struct nvmet_subsys *subsys;
 		struct nvmet_host *host;
+		char path[PATH_MAX + 1];
 
 		if (debug_inotify)
 			printf("rmdir %s type %d\n",
@@ -788,22 +779,34 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 		case TYPE_PORT:
 			port = container_of(watcher,
 					    struct nvmet_port, watcher);
-			free(port);
-			break;
-		case TYPE_SUBSYS:
-			subsys = container_of(watcher,
-					      struct nvmet_subsys, watcher);
-
-			watcher = find_watcher(TYPE_SUBSYS_HOSTS_DIR,
-					       subsys->watcher.dirname,
-					       "allowed_hosts");
+			strcpy(path, port->watcher.dirname);
+			strcat(path, "/subsystems");
+			watcher = find_watcher(TYPE_PORT_SUBSYS_DIR, path);
 			if (watcher) {
 				if (debug_inotify)
 					printf("free %s\n",
 					       watcher->dirname);
 				list_del_init(&watcher->entry);
 				free(watcher);
-			}
+			} else
+				fprintf(stderr, "invalid path %s\n", path);
+			free(port);
+			break;
+		case TYPE_SUBSYS:
+			subsys = container_of(watcher,
+					      struct nvmet_subsys, watcher);
+
+			strcpy(path, subsys->watcher.dirname);
+			strcat(path, "/allowed_hosts");
+			watcher = find_watcher(TYPE_SUBSYS_HOSTS_DIR, path);
+			if (watcher) {
+				if (debug_inotify)
+					printf("free %s\n",
+					       watcher->dirname);
+				list_del_init(&watcher->entry);
+				free(watcher);
+			} else
+				fprintf(stderr, "invalid path %s\n", path);
 			free(subsys);
 			break;
 		case TYPE_HOST:
