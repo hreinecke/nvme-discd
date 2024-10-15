@@ -687,6 +687,11 @@ static void link_subsys_host(char *hosts_dir, char *hostnqn)
 	p = strrchr(host_dir, '/');
 	if (!p)
 		return;
+	*p = '\0';
+	p = strrchr(host_dir, '/');
+	if (!p)
+		return;
+	p++;
 	subsys = find_subsys(p);
 	if (!subsys) {
 		fprintf(stderr, "Subsystem not found for %s\n", p);
@@ -753,7 +758,7 @@ static void watch_subsys(int fd, struct etcd_cdc_ctx *ctx,
 	sprintf(ah_dir, "%s/%s/allowed_hosts",
 		subsys_dir, subnqn);
 	watch_directory(fd, ah_dir, TYPE_SUBSYS_HOSTS_DIR,
-			IN_CREATE);
+			IN_CREATE | IN_DELETE);
 	ad = opendir(ah_dir);
 	if (!ad) {
 		fprintf(stderr, "Cannot open %s\n", ah_dir);
