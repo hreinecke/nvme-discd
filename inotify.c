@@ -113,13 +113,12 @@ static struct dir_watcher *find_watcher(enum watcher_type type, char *path)
 	list_for_each_entry(watcher, &dir_watcher_list, entry) {
 		if (watcher->type != type)
 			continue;
-		if (debug_inotify)
-			printf("checking %s\n", watcher->dirname);
 		if (strcmp(watcher->dirname, path))
 			continue;
 		return watcher;
 	}
-	fprintf(stderr, "No watcher found for type %d dir %s\n", type, path);
+	fprintf(stderr, "%s: no watcher found for type %d dir %s\n",
+		__func__, type, path);
 	return NULL;
 }
 
@@ -132,14 +131,14 @@ static struct nvmet_port *port_from_port_subsys_dir(char *dir)
 	p = strrchr(port_dir, '/');
 	if (!p) {
 		if (debug_inotify)
-			fprintf(stderr, "invalid directory %s\n", dir);
+			fprintf(stderr, "%s: invalid directory %s\n",
+				__func__, dir);
 		return NULL;
 	}
 	*p = '\0';
 	watcher = find_watcher(TYPE_PORT, port_dir);
 	if (watcher)
 		return container_of(watcher, struct nvmet_port, watcher);
-	fprintf(stderr, "invalid port directory %s\n", dir);
 	return NULL;
 }
 
@@ -158,7 +157,6 @@ static struct nvmet_subsys *subsys_from_subsys_host_dir(char *dir)
 	watcher = find_watcher(TYPE_SUBSYS, subsys_dir);
 	if (watcher)
 		return container_of(watcher, struct nvmet_subsys, watcher);
-	fprintf(stderr, "%s: invalid directory %s\n", __func__, dir);
 	return NULL;
 }
 
@@ -171,14 +169,16 @@ static int attr_read_int(char *path, char *attr, int *v)
 	sprintf(attr_path, "%s/%s", path, attr);
 	fd = open(attr_path, O_RDONLY);
 	if (fd < 0) {
-		fprintf(stderr, "Failed to open '%s', error %d\n",
-			attr_path, errno);
+		fprintf(stderr, "%s: failed to open '%s', error %d\n",
+			__func__, attr_path, errno);
 		return -1;
 	}
 	len = read(fd, attr_buf, 256);
-	if (len < 0)
+	if (len < 0) {
+		fprintf(stderr, "%s: failed to read '%s', error %d\n",
+			__func__, attr_path, errno);
 		memset(attr_buf, 0, 256);
-	else {
+	} else {
 		val = strtoul(attr_buf, &p, 10);
 		if (attr_buf == p)
 			len = -1;
@@ -210,8 +210,8 @@ static struct dir_watcher *add_watch(int fd, struct dir_watcher *watcher,
 	watcher->wd = inotify_add_watch(fd, watcher->dirname, flags);
 	if (watcher->wd < 0) {
 		fprintf(stderr,
-			"failed to add inotify watch to '%s', error %d\n",
-			watcher->dirname, errno);
+			"%s: failed to add inotify watch to '%s', error %d\n",
+			__func__, watcher->dirname, errno);
 		return watcher;
 	}
 	if (debug_inotify)
@@ -232,8 +232,8 @@ static int remove_watch(int fd, struct dir_watcher *watcher)
 
 	ret = inotify_rm_watch(fd, watcher->wd);
 	if (ret < 0)
-		fprintf(stderr, "Failed to remove inotify watch on '%s'\n",
-			watcher->dirname);
+		fprintf(stderr, "%s: failed to remove inotify watch on '%s'\n",
+			__func__, watcher->dirname);
 	if (debug_inotify)
 		printf("remove inotify watch %d type %d from '%s'\n",
 		       watcher->wd, watcher->type, watcher->dirname);
@@ -255,8 +255,6 @@ static int remove_watch(int fd, struct dir_watcher *watcher)
 	case TYPE_PORT_SUBSYS_DIR:
 		port = port_from_port_subsys_dir(watcher->dirname);
 		if (!port) {
-			fprintf(stderr, "invalid port subsys dir %s\n",
-				watcher->dirname);
 			free(watcher);
 			break;
 		}
@@ -275,19 +273,13 @@ static int remove_watch(int fd, struct dir_watcher *watcher)
 		subsys = container_of(watcher,
 				      struct nvmet_subsys,
 				      watcher);
-		if (!subsys) {
-			fprintf(stderr, "invalid directory %s\n",
-				watcher->dirname);
-			free(watcher);
-			break;
-		}
 		free(subsys);
 		break;
 	case TYPE_SUBSYS_HOSTS_DIR:
 		subsys = subsys_from_subsys_host_dir(watcher->dirname);
 		if (!subsys) {
-			fprintf(stderr, "invalid subsys host dir %s\n",
-				watcher->dirname);
+			fprintf(stderr, "%s: invalid subsys host dir %s\n",
+				__func__, watcher->dirname);
 			free(watcher);
 			break;
 		}
@@ -319,7 +311,7 @@ static int watch_directory(int fd, char *dirname,
 
 	watcher = malloc(sizeof(struct dir_watcher));
 	if (!watcher) {
-		fprintf(stderr, "Failed to allocate dirwatch\n");
+		fprintf(stderr, "%s: failed to allocate dirwatch\n", __func__);
 		return -1;
 	}
 	strcpy(watcher->dirname, dirname);
@@ -374,8 +366,8 @@ static int port_read_attr(struct nvmet_port *port, char *attr)
 	else if (!strcmp(attr, "treq"))
 		attr_buf = port->treq;
 	else {
-		fprintf(stderr, "Port %s: Invalid attribute '%s'\n",
-			port->port_id, attr);
+		fprintf(stderr, "%s: port %s invalid attribute '%s'\n",
+			__func__, port->port_id, attr);
 		return -1;
 	}
 
@@ -384,8 +376,8 @@ static int port_read_attr(struct nvmet_port *port, char *attr)
 	strcat(attr_path, attr);
 	fd = open(attr_path, O_RDONLY);
 	if (fd < 0) {
-		fprintf(stderr, "Port %s: Failed to open '%s', error %d\n",
-			port->port_id, attr_path, errno);
+		fprintf(stderr, "%s: port %s failed to open '%s', error %d\n",
+			__func__, port->port_id, attr_path, errno);
 		return -1;
 	}
 	len = read(fd, attr_buf, 256);
@@ -407,8 +399,8 @@ static struct nvmet_port *update_port(char *ports_dir, char *port_id)
 
 	port = malloc(sizeof(struct nvmet_port));
 	if (!port) {
-		fprintf(stderr, "Port %s: Failed to allocate port\n",
-			port_id);
+		fprintf(stderr, "%s: port %s failed to allocate port\n",
+			__func__, port_id);
 		return NULL;
 	}
 	INIT_LIST_HEAD(&port->subsystems);
@@ -442,8 +434,6 @@ static void add_port_subsys(struct etcd_cdc_ctx *ctx,
 	strcat(subsys_dir, subsysnqn);
 	watcher = find_watcher(TYPE_SUBSYS, subsys_dir);
 	if (!watcher) {
-		fprintf(stderr, "%s: invalid subsystem dir %s not found\n",
-			__func__, subsys_dir);
 		free(port_subsys);
 		return;
 	}
@@ -462,15 +452,14 @@ static void link_port_subsys(struct etcd_cdc_ctx *ctx,
 	struct nvmet_port *port;
 
 	port = port_from_port_subsys_dir(port_subsys_dir);
-	if (!port) {
-		fprintf(stderr, "Port not found for %s\n", port_subsys_dir);
+	if (!port)
 		return;
-	}
+
 	list_for_each_entry(port_subsys, &port->subsystems, entry) {
 		if (!strcmp(port_subsys->subsys->subsysnqn,
 			    subsysnqn)) {
-			fprintf(stderr, "Duplicate subsys %s for %s\n",
-				subsysnqn, port->port_id);
+			fprintf(stderr, "%s: duplicate subsys %s for %s\n",
+				__func__, subsysnqn, port->port_id);
 			return;
 		}
 	}
@@ -505,7 +494,7 @@ static void watch_port(int fd, struct etcd_cdc_ctx *ctx,
 
 	sd = opendir(subsys_dir);
 	if (!sd) {
-		fprintf(stderr, "Cannot open %s\n", subsys_dir);
+		fprintf(stderr, "%s: cannot open %s\n", __func__, subsys_dir);
 		return;
 	}
 	while ((se = readdir(sd))) {
@@ -527,7 +516,8 @@ static void add_subsys_host(struct etcd_cdc_ctx *ctx,
 
   	subsys_host = malloc(sizeof(struct nvmet_subsys_host));
 	if (!subsys_host) {
-		fprintf(stderr, "Cannot allocate %s\n", hostnqn);
+		fprintf(stderr, "%s: cannot allocate %s\n",
+			__func__, hostnqn);
 		return;
 	}
 	INIT_LIST_HEAD(&subsys_host->entry);
@@ -537,8 +527,6 @@ static void add_subsys_host(struct etcd_cdc_ctx *ctx,
 	strcat(host_dir, hostnqn);
 	watcher = find_watcher(TYPE_HOST, host_dir);
 	if (!watcher) {
-		fprintf(stderr, "%s: invalid host dir %s\n",
-			__func__, host_dir);
 		free(subsys_host);
 		return;
 	}
@@ -567,16 +555,14 @@ static void link_subsys_host(struct etcd_cdc_ctx *ctx,
 	}
 	*p = '\0';
 	watcher = find_watcher(TYPE_SUBSYS, subsys_dir);
-	if (!watcher) {
-		fprintf(stderr, "%s: subsystem not found for %s\n",
-			__func__, subsys_dir);
+	if (!watcher)
 		return;
-	}
+
 	subsys = container_of(watcher, struct nvmet_subsys, watcher);
 	list_for_each_entry(subsys_host, &subsys->hosts, entry) {
 		if (!strcmp(subsys_host->host->hostnqn, hostnqn)) {
-			fprintf(stderr, "Duplicate host %s for %s\n",
-				hostnqn, subsys->subsysnqn);
+			fprintf(stderr, "%s: duplicate host %s for %s\n",
+				__func__, hostnqn, subsys->subsysnqn);
 			return;
 		}
 	}
@@ -609,12 +595,9 @@ static void watch_subsys(int fd, struct etcd_cdc_ctx *ctx,
 		}
 	}
 
-	if (attr_read_int(subsys->watcher.dirname,
-			  "attr_allow_any_host",
-			  &subsys->allow_any) < 0) {
-		fprintf(stderr, "failed to read %s attr_allow_any_host\n",
-			subsys->subsysnqn);
-	}
+	attr_read_int(subsys->watcher.dirname,
+		      "attr_allow_any_host",
+		      &subsys->allow_any);
 
 	sprintf(ah_dir, "%s/%s/allowed_hosts",
 		subsys_dir, subnqn);
@@ -622,7 +605,7 @@ static void watch_subsys(int fd, struct etcd_cdc_ctx *ctx,
 			IN_CREATE | IN_DELETE);
 	ad = opendir(ah_dir);
 	if (!ad) {
-		fprintf(stderr, "Cannot open %s\n", ah_dir);
+		fprintf(stderr, "%s: cannot open %s\n", __func__, ah_dir);
 		return;
 	}
 	while ((ae = readdir(ad))) {
@@ -730,8 +713,8 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 			link_subsys_host(ctx, watcher->dirname, ev->name);
 			break;
 		default:
-			fprintf(stderr, "Unhandled create type %d\n",
-				watcher->type);
+			fprintf(stderr, "%s: unhandled create type %d\n",
+				__func__, watcher->type);
 			break;
 		}
 	} else if (ev->mask & IN_DELETE_SELF) {
@@ -759,8 +742,7 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 					       watcher->dirname);
 				list_del_init(&watcher->entry);
 				free(watcher);
-			} else
-				fprintf(stderr, "invalid path %s\n", path);
+			}
 			free(port);
 			break;
 		case TYPE_SUBSYS:
@@ -776,8 +758,7 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 					       watcher->dirname);
 				list_del_init(&watcher->entry);
 				free(watcher);
-			} else
-				fprintf(stderr, "invalid path %s\n", path);
+			}
 			free(subsys);
 			break;
 		case TYPE_HOST:
@@ -807,8 +788,6 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 		case TYPE_PORT_SUBSYS_DIR:
 			port = port_from_port_subsys_dir(watcher->dirname);
 			if (!port) {
-				fprintf(stderr, "Port not found for dir %s\n",
-					watcher->dirname);
 				free(watcher);
 				break;
 			}
@@ -820,8 +799,8 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 				}
 			}
 			if (!port_subsys) {
-				fprintf(stderr, "port_subsys %s not found\n",
-					ev->name);
+				fprintf(stderr, "%s: port_subsys %s not found\n",
+					__func__, ev->name);
 				free(watcher);
 			} else {
 				if (debug_inotify)
@@ -834,8 +813,8 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 		case TYPE_SUBSYS_HOSTS_DIR:
 			subsys = subsys_from_subsys_host_dir(watcher->dirname);
 			if (!subsys) {
-				fprintf(stderr, "subsys not found for dir %s\n",
-					watcher->dirname);
+				fprintf(stderr, "%s: subsys not found for dir %s\n",
+					__func__, watcher->dirname);
 				free(watcher);
 				break;
 			}
@@ -847,8 +826,8 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 				}
 			}
 			if (!subsys_host) {
-				fprintf(stderr, "subsys_host %s not found\n",
-					ev->name);
+				fprintf(stderr, "%s: subsys_host %s not found\n",
+					__func__, ev->name);
 				free(watcher);
 			} else {
 				if (debug_inotify)
@@ -877,8 +856,9 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 			if (!strncmp(ev->name, "addr_", 5)) {
 				port_read_attr(port, ev->name + 5);
 			} else {
-				fprintf(stderr, "invalid port attribute %s\n",
-					ev->name + 5);
+				fprintf(stderr,
+					"%s: invalid port attribute %s\n",
+					__func__, ev->name + 5);
 			}
 			break;
 		case TYPE_SUBSYS:
@@ -886,11 +866,9 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 					      struct nvmet_subsys,
 					      watcher);
 			if (!strncmp(ev->name, "attr_allow_any_host", 19)) {
-				if (attr_read_int(subsys->watcher.dirname,
-						  "attr_allow_any_host",
-						  &subsys->allow_any) < 0)
-					fprintf(stderr, "failed to read %s\n",
-						subsys->watcher.dirname);
+				attr_read_int(subsys->watcher.dirname,
+					      "attr_allow_any_host",
+					      &subsys->allow_any);
 			} else {
 				if (debug_inotify)
 					printf("unknown attribute %s/%s\n",
@@ -899,8 +877,8 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 			}
 			break;
 		default:
-			fprintf(stderr, "unhandled modify type %d\n",
-				watcher->type);
+			fprintf(stderr, "%s: unhandled modify type %d\n",
+				__func__, watcher->type);
 			break;
 		}
 	}
@@ -919,7 +897,7 @@ int watch_hosts_dir(int fd, struct etcd_cdc_ctx *ctx)
 
 	hd = opendir(hosts_dir);
 	if (!hd) {
-		fprintf(stderr, "Cannot open %s\n", hosts_dir);
+		fprintf(stderr, "%s: cannot open %s\n", __func__, hosts_dir);
 		return -1;
 	}
 	while ((he = readdir(hd))) {
@@ -944,7 +922,8 @@ int watch_ports_dir(int fd, struct etcd_cdc_ctx *ctx)
 
 	pd = opendir(ports_dir);
 	if (!pd) {
-		fprintf(stderr, "Cannot open %s\n", ports_dir);
+		fprintf(stderr, "%s: cannot open %s\n",
+			__func__, ports_dir);
 		return -1;
 	}
 	while ((pe = readdir(pd))) {
@@ -969,7 +948,7 @@ int watch_subsys_dir(int fd, struct etcd_cdc_ctx *ctx)
 
 	sd = opendir(subsys_dir);
 	if (!sd) {
-		fprintf(stderr, "Cannot open %s\n", subsys_dir);
+		fprintf(stderr, "%s: cannot open %s\n", __func__, subsys_dir);
 		return -1;
 	}
 	while ((se = readdir(sd))) {
