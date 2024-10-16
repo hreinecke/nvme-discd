@@ -123,18 +123,6 @@ static struct dir_watcher *find_watcher(enum watcher_type type, char *path)
 	return NULL;
 }
 
-static struct nvmet_port *find_port(char *port_dir)
-{
-	struct dir_watcher *watcher;
-
-	watcher = find_watcher(TYPE_PORT, port_dir);
-	if (watcher)
-		return container_of(watcher, struct nvmet_port, watcher);
-
-	fprintf(stderr, "No port found for %s\n", port_dir);
-	return NULL;
-}
-
 static struct nvmet_subsys *find_subsys(char *subnqn)
 {
 	struct dir_watcher *watcher;
@@ -154,28 +142,10 @@ static struct nvmet_subsys *find_subsys(char *subnqn)
 	return NULL;
 }
 
-static struct nvmet_host *find_host(char *hostnqn)
-{
-	struct dir_watcher *watcher;
-	struct nvmet_host *host;
-
-	list_for_each_entry(watcher, &dir_watcher_list, entry) {
-		if (watcher->type != TYPE_HOST)
-			continue;
-		host = container_of(watcher, struct nvmet_host,
-				    watcher);
-		if (strcmp(host->hostnqn, hostnqn))
-			continue;
-		return host;
-	}
-	if (debug_inotify)
-		printf("Host %s not found\n", hostnqn);
-	return NULL;
-}
-
 static struct nvmet_port *port_from_port_subsys_dir(char *dir)
 {
 	char port_dir[PATH_MAX + 1], *p;
+	struct dir_watcher *watcher;
 
 	strcpy(port_dir, dir);
 	p = strrchr(port_dir, '/');
@@ -185,12 +155,17 @@ static struct nvmet_port *port_from_port_subsys_dir(char *dir)
 		return NULL;
 	}
 	*p = '\0';
-	return find_port(port_dir);
+	watcher = find_watcher(TYPE_PORT, port_dir);
+	if (watcher)
+		return container_of(watcher, struct nvmet_port, watcher);
+	fprintf(stderr, "invalid port directory %s\n", dir);
+	return NULL;
 }
 
 static struct nvmet_subsys *subsys_from_subsys_host_dir(char *dir)
 {
-	char subsys_dir[PATH_MAX + 1], *p, *subsysnqn;
+	char subsys_dir[PATH_MAX + 1], *p;
+	struct dir_watcher *watcher;
 
 	strcpy(subsys_dir, dir);
 	p = strrchr(subsys_dir, '/');
@@ -199,13 +174,11 @@ static struct nvmet_subsys *subsys_from_subsys_host_dir(char *dir)
 		return NULL;
 	}
 	*p = '\0';
-	subsysnqn = strrchr(subsys_dir, '/');
-	if (!subsysnqn) {
-		fprintf(stderr, "%s: invalid directory %s\n", __func__, dir);
-		return NULL;
-	}
-	subsysnqn++;
-	return find_subsys(subsysnqn);
+	watcher = find_watcher(TYPE_SUBSYS, subsys_dir);
+	if (watcher)
+		return container_of(watcher, struct nvmet_subsys, watcher);
+	fprintf(stderr, "%s: invalid directory %s\n", __func__, dir);
+	return NULL;
 }
 
 static int attr_read_int(char *path, char *attr, int *v)
@@ -554,9 +527,12 @@ static void watch_port(int fd, struct etcd_cdc_ctx *ctx,
 	closedir(sd);
 }
 
-static void add_subsys_host(struct nvmet_subsys *subsys, char *hostnqn)
+static void add_subsys_host(struct etcd_cdc_ctx *ctx,
+			    struct nvmet_subsys *subsys, char *hostnqn)
 {
 	struct nvmet_subsys_host *subsys_host;
+	struct dir_watcher *watcher;
+	char host_dir[PATH_MAX + 1];
 	struct nvmet_host *host;
 
   	subsys_host = malloc(sizeof(struct nvmet_subsys_host));
@@ -566,38 +542,47 @@ static void add_subsys_host(struct nvmet_subsys *subsys, char *hostnqn)
 	}
 	INIT_LIST_HEAD(&subsys_host->entry);
 	subsys_host->subsys = subsys;
-	host = find_host(hostnqn);
-	if (host) {
-		subsys_host->host = host;
-		list_add(&subsys_host->entry, &subsys->hosts);
-		if (debug_inotify)
-			printf("link host %s to subsys %s\n",
-			       host->hostnqn, subsys->subsysnqn);
-	} else {
+	strcpy(host_dir, ctx->configfs);
+	strcat(host_dir, "/hosts/");
+	strcat(host_dir, hostnqn);
+	watcher = find_watcher(TYPE_HOST, host_dir);
+	if (!watcher) {
+		fprintf(stderr, "%s: invalid host dir %s\n",
+			__func__, host_dir);
 		free(subsys_host);
+		return;
 	}
+	host = container_of(watcher, struct nvmet_host, watcher);
+	subsys_host->host = host;
+	list_add(&subsys_host->entry, &subsys->hosts);
+	if (debug_inotify)
+		printf("link host %s to subsys %s\n",
+		       host->hostnqn, subsys->subsysnqn);
 }
 
-static void link_subsys_host(char *hosts_dir, char *hostnqn)
+static void link_subsys_host(struct etcd_cdc_ctx *ctx,
+			     char *subsys_hosts_dir, char *hostnqn)
 {
+	struct dir_watcher *watcher;
 	struct nvmet_subsys_host *subsys_host;
 	struct nvmet_subsys *subsys;
-	char host_dir[PATH_MAX + 1], *p;
+	char subsys_dir[PATH_MAX + 1], *p;
 
-	strcpy(host_dir, hosts_dir);
-	p = strrchr(host_dir, '/');
-	if (!p)
-		return;
-	*p = '\0';
-	p = strrchr(host_dir, '/');
-	if (!p)
-		return;
-	p++;
-	subsys = find_subsys(p);
-	if (!subsys) {
-		fprintf(stderr, "Subsystem not found for %s\n", p);
+	strcpy(subsys_dir, subsys_hosts_dir);
+	p = strrchr(subsys_dir, '/');
+	if (!p) {
+		fprintf(stderr, "%s: invalid directory %s\n",
+			__func__, subsys_hosts_dir);
 		return;
 	}
+	*p = '\0';
+	watcher = find_watcher(TYPE_SUBSYS, subsys_dir);
+	if (!watcher) {
+		fprintf(stderr, "%s: subsystem not found for %s\n",
+			__func__, subsys_dir);
+		return;
+	}
+	subsys = container_of(watcher, struct nvmet_subsys, watcher);
 	list_for_each_entry(subsys_host, &subsys->hosts, entry) {
 		if (!strcmp(subsys_host->host->hostnqn, hostnqn)) {
 			fprintf(stderr, "Duplicate host %s for %s\n",
@@ -605,7 +590,7 @@ static void link_subsys_host(char *hosts_dir, char *hostnqn)
 			return;
 		}
 	}
-	add_subsys_host(subsys, hostnqn);
+	add_subsys_host(ctx, subsys, hostnqn);
 }
 
 static void watch_subsys(int fd, struct etcd_cdc_ctx *ctx,
@@ -654,7 +639,7 @@ static void watch_subsys(int fd, struct etcd_cdc_ctx *ctx,
 		if (!strcmp(ae->d_name, ".") ||
 		    !strcmp(ae->d_name, ".."))
 			continue;
-		add_subsys_host(subsys, ae->d_name);
+		add_subsys_host(ctx, subsys, ae->d_name);
 	}
 	closedir(ad);
 }
@@ -752,7 +737,7 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 			watch_subsys(fd, ctx, watcher->dirname, ev->name);
 			break;
 		case TYPE_SUBSYS_HOSTS_DIR:
-			link_subsys_host(watcher->dirname, ev->name);
+			link_subsys_host(ctx, watcher->dirname, ev->name);
 			break;
 		default:
 			fprintf(stderr, "Unhandled create type %d\n",
