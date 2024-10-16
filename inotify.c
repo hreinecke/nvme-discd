@@ -127,14 +127,10 @@ static struct nvmet_port *find_port(char *port_dir)
 {
 	struct dir_watcher *watcher;
 
-	list_for_each_entry(watcher, &dir_watcher_list, entry) {
-		if (watcher->type != TYPE_PORT)
-			continue;
-		if (strncmp(watcher->dirname, port_dir,
-			    strlen(watcher->dirname)))
-			continue;
+	watcher = find_watcher(TYPE_PORT, port_dir);
+	if (watcher)
 		return container_of(watcher, struct nvmet_port, watcher);
-	}
+
 	fprintf(stderr, "No port found for %s\n", port_dir);
 	return NULL;
 }
