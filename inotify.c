@@ -123,25 +123,6 @@ static struct dir_watcher *find_watcher(enum watcher_type type, char *path)
 	return NULL;
 }
 
-static struct nvmet_subsys *find_subsys(char *subnqn)
-{
-	struct dir_watcher *watcher;
-	struct nvmet_subsys *subsys;
-
-	list_for_each_entry(watcher, &dir_watcher_list, entry) {
-		if (watcher->type != TYPE_SUBSYS)
-			continue;
-		subsys = container_of(watcher, struct nvmet_subsys,
-				      watcher);
-		if (strcmp(subsys->subsysnqn, subnqn))
-			continue;
-		return subsys;
-	}
-	if (debug_inotify)
-		printf("Subsys %s not found\n", subnqn);
-	return NULL;
-}
-
 static struct nvmet_port *port_from_port_subsys_dir(char *dir)
 {
 	char port_dir[PATH_MAX + 1], *p;
@@ -443,9 +424,12 @@ static struct nvmet_port *update_port(char *ports_dir, char *port_id)
 	return port;
 }
 
-static void add_port_subsys(struct nvmet_port *port, char *subsysnqn)
+static void add_port_subsys(struct etcd_cdc_ctx *ctx,
+			    struct nvmet_port *port, char *subsysnqn)
 {
 	struct nvmet_port_subsys *port_subsys;
+	struct dir_watcher *watcher;
+	char subsys_dir[PATH_MAX + 1];
 	struct nvmet_subsys *subsys;
 
 	port_subsys = malloc(sizeof(struct nvmet_port_subsys));
@@ -453,20 +437,26 @@ static void add_port_subsys(struct nvmet_port *port, char *subsysnqn)
 		return;
 	INIT_LIST_HEAD(&port_subsys->entry);
 	port_subsys->port = port;
-	subsys = find_subsys(subsysnqn);
-	if (subsys) {
-		port_subsys->subsys = subsys;
-		list_add(&port_subsys->entry, &port->subsystems);
-		if (debug_inotify)
-			printf("link port %s to subsys %s\n",
-			       port->port_id, subsys->subsysnqn);
-	} else {
-		fprintf(stderr, "subsystm %s not found\n", subsysnqn);
+	strcpy(subsys_dir, ctx->configfs);
+	strcat(subsys_dir, "/subsystems/");
+	strcat(subsys_dir, subsysnqn);
+	watcher = find_watcher(TYPE_SUBSYS, subsys_dir);
+	if (!watcher) {
+		fprintf(stderr, "%s: invalid subsystem dir %s not found\n",
+			__func__, subsys_dir);
 		free(port_subsys);
+		return;
 	}
+	subsys = container_of(watcher, struct nvmet_subsys, watcher);
+	port_subsys->subsys = subsys;
+	list_add(&port_subsys->entry, &port->subsystems);
+	if (debug_inotify)
+		printf("link port %s to subsys %s\n",
+		       port->port_id, subsys->subsysnqn);
 }
 
-static void link_port_subsys(char *port_subsys_dir, char *subsysnqn)
+static void link_port_subsys(struct etcd_cdc_ctx *ctx,
+			     char *port_subsys_dir, char *subsysnqn)
 {
 	struct nvmet_port_subsys *port_subsys;
 	struct nvmet_port *port;
@@ -484,7 +474,7 @@ static void link_port_subsys(char *port_subsys_dir, char *subsysnqn)
 			return;
 		}
 	}
-	add_port_subsys(port, subsysnqn);
+	add_port_subsys(ctx, port, subsysnqn);
 }
 	
 static void watch_port(int fd, struct etcd_cdc_ctx *ctx,
@@ -522,7 +512,7 @@ static void watch_port(int fd, struct etcd_cdc_ctx *ctx,
 		if (!strcmp(se->d_name, ".") ||
 		    !strcmp(se->d_name, ".."))
 			continue;
-		add_port_subsys(port, se->d_name);
+		add_port_subsys(ctx, port, se->d_name);
 	}
 	closedir(sd);
 }
@@ -731,7 +721,7 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 			watch_port(fd, ctx, watcher->dirname, ev->name);
 			break;
 		case TYPE_PORT_SUBSYS_DIR:
-			link_port_subsys(watcher->dirname, ev->name);
+			link_port_subsys(ctx, watcher->dirname, ev->name);
 			break;
 		case TYPE_SUBSYS_DIR:
 			watch_subsys(fd, ctx, watcher->dirname, ev->name);
