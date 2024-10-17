@@ -112,12 +112,15 @@ struct nvmet_subsys_host {
 };
 
 static void db_update_subsys_port(struct etcd_cdc_ctx *ctx,
+				  struct nvmet_host *host,
 				  struct nvmet_subsys *subsys,
 				  struct nvmet_port *port, enum db_op op)
 {
 	struct nvmet_subsys_host *subsys_host;
 
 	list_for_each_entry(subsys_host, &subsys->hosts, entry) {
+		if (host && subsys_host->host != host)
+			continue;
 		printf("%s %s/%s/%s\n",
 		       op == OP_ADD ? "ADD" : "DEL",
 		       subsys_host->host->hostnqn,
@@ -140,8 +143,6 @@ static void db_update_host_subsys(struct etcd_cdc_ctx *ctx,
 			continue;
 		port = container_of(watcher, struct nvmet_port, watcher);
 		list_for_each_entry(port_subsys, &port->subsystems, entry) {
-			struct nvmet_subsys_host *subsys_host;
-
 			if (port_subsys->subsys != subsys)
 				continue;
 			if (!host) {
@@ -149,17 +150,9 @@ static void db_update_host_subsys(struct etcd_cdc_ctx *ctx,
 				       op == OP_ADD ? "ADD" : "DEL",
 				       subsys->subsysnqn,
 				       port->port_id);
-				continue;
-			}
-			list_for_each_entry(subsys_host, &subsys->hosts, entry) {
-				if (subsys_host->host != host)
-					continue;
-				printf("%s %s/%s/%s\n",
-				       op == OP_ADD ? "ADD" : "DEL",
-				       host->hostnqn,
-				       subsys->subsysnqn,
-				       port->port_id);
-			}
+			} else
+				db_update_subsys_port(ctx, host, subsys,
+						      port, op);
 		}
 	}
 }
@@ -345,14 +338,15 @@ static int remove_watch(int fd, struct etcd_cdc_ctx *ctx,
 		}
 		list_for_each_entry_safe(port_subsys, tmp_p,
 					 &port->subsystems, entry) {
+			subsys = port_subsys->subsys;
 			if (debug_inotify)
 				printf("unlink subsys %s from port %s\n",
-				       port_subsys->subsys->subsysnqn,
+				       subsys->subsysnqn,
 				       port->port_id);
 			list_del_init(&port_subsys->entry);
-			db_update_subsys_port(ctx, port_subsys->subsys,
-					      port, OP_DEL);
 			free(port_subsys);
+			db_update_subsys_port(ctx, NULL, subsys,
+					      port, OP_DEL);
 		}
 		free(watcher);
 		break;
@@ -536,7 +530,7 @@ static void add_port_subsys(struct etcd_cdc_ctx *ctx,
 	if (debug_inotify)
 		printf("link port %s to subsys %s\n",
 		       port->port_id, subsys->subsysnqn);
-	db_update_subsys_port(ctx, subsys, port, OP_ADD);
+	db_update_subsys_port(ctx, NULL, subsys, port, OP_ADD);
 }
 
 static void link_port_subsys(struct etcd_cdc_ctx *ctx,
@@ -900,14 +894,14 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 					__func__, ev->name);
 				free(watcher);
 			} else {
+				subsys = port_subsys->subsys;
 				if (debug_inotify)
 					printf("unlink subsys %s from port %s\n",
 					       ev->name, port->port_id);
 				list_del_init(&port_subsys->entry);
-				db_update_subsys_port(ctx,
-						      port_subsys->subsys,
-						      port, OP_DEL);
 				free(port_subsys);
+				db_update_subsys_port(ctx, NULL, subsys,
+						      port, OP_DEL);
 			}
 			break;
 		case TYPE_SUBSYS_HOSTS_DIR:
