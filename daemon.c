@@ -95,7 +95,6 @@ int main (int argc, char *argv[])
 
 	parse_opts(ctx, argc, argv);
 
-
 	inotify_loop(ctx);
 
 	free(ctx);

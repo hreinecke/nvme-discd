@@ -41,7 +41,7 @@
 
 LIST_HEAD(dir_watcher_list);
 
-int debug_inotify = 1;
+static int debug_inotify;
 
 enum watcher_type {
 	TYPE_HOST_DIR,		/* hosts */
@@ -58,6 +58,11 @@ enum watcher_type {
 	TYPE_SUBSYS_HOST,	/* subsystems/<subsys>/allowed_hosts/<host> */
 };
 
+enum db_op {
+	OP_ADD,
+	OP_DEL,
+	OP_MODIFY,
+};
 struct dir_watcher {
 	struct list_head entry;
 	enum watcher_type type;
@@ -105,6 +110,59 @@ struct nvmet_subsys_host {
         struct nvmet_subsys *subsys;
 	struct nvmet_host *host;
 };
+
+static void db_update_subsys_port(struct etcd_cdc_ctx *ctx,
+				  struct nvmet_subsys *subsys,
+				  struct nvmet_port *port, enum db_op op)
+{
+	struct nvmet_subsys_host *subsys_host;
+
+	list_for_each_entry(subsys_host, &subsys->hosts, entry) {
+		printf("%s %s/%s/%s\n",
+		       op == OP_ADD ? "ADD" : "DEL",
+		       subsys_host->host->hostnqn,
+		       subsys->subsysnqn,
+		       port->port_id);
+	}
+}
+
+static void db_update_host_subsys(struct etcd_cdc_ctx *ctx,
+				  struct nvmet_host *host,
+				  struct nvmet_subsys *subsys,
+				  enum db_op op)
+{
+	struct dir_watcher *watcher;
+
+	list_for_each_entry(watcher, &dir_watcher_list, entry) {
+		struct nvmet_port *port;
+		struct nvmet_port_subsys *port_subsys;
+		if (watcher->type != TYPE_PORT)
+			continue;
+		port = container_of(watcher, struct nvmet_port, watcher);
+		list_for_each_entry(port_subsys, &port->subsystems, entry) {
+			struct nvmet_subsys_host *subsys_host;
+
+			if (port_subsys->subsys != subsys)
+				continue;
+			if (!host) {
+				printf("%s <none>/%s/%s\n",
+				       op == OP_ADD ? "ADD" : "DEL",
+				       subsys->subsysnqn,
+				       port->port_id);
+				continue;
+			}
+			list_for_each_entry(subsys_host, &subsys->hosts, entry) {
+				if (subsys_host->host != host)
+					continue;
+				printf("%s %s/%s/%s\n",
+				       op == OP_ADD ? "ADD" : "DEL",
+				       host->hostnqn,
+				       subsys->subsysnqn,
+				       port->port_id);
+			}
+		}
+	}
+}
 
 static struct dir_watcher *find_watcher(enum watcher_type type, char *path)
 {
@@ -221,7 +279,8 @@ static struct dir_watcher *add_watch(int fd, struct dir_watcher *watcher,
 	return 0;
 }
 
-static int remove_watch(int fd, struct dir_watcher *watcher)
+static int remove_watch(int fd, struct etcd_cdc_ctx *ctx,
+			struct dir_watcher *watcher)
 {
 	int ret;
 	struct nvmet_host *host;
@@ -265,6 +324,8 @@ static int remove_watch(int fd, struct dir_watcher *watcher)
 				       port_subsys->subsys->subsysnqn,
 				       port->port_id);
 			list_del_init(&port_subsys->entry);
+			db_update_subsys_port(ctx, port_subsys->subsys,
+					      port, OP_DEL);
 			free(port_subsys);
 		}
 		free(watcher);
@@ -290,6 +351,8 @@ static int remove_watch(int fd, struct dir_watcher *watcher)
 				       subsys_host->host->hostnqn,
 				       subsys->subsysnqn);
 			list_del_init(&subsys_host->entry);
+			db_update_host_subsys(ctx, subsys_host->host,
+					      subsys, OP_DEL);
 			free(subsys_host);
 		}
 		free(watcher);
@@ -376,6 +439,10 @@ static int port_read_attr(struct nvmet_port *port, char *attr)
 	strcat(attr_path, attr);
 	fd = open(attr_path, O_RDONLY);
 	if (fd < 0) {
+		if (!strcmp(attr, "tsas")) {
+			strcpy(attr_buf, "none");
+			return 4;
+		}
 		fprintf(stderr, "%s: port %s failed to open '%s', error %d\n",
 			__func__, port->port_id, attr_path, errno);
 		return -1;
@@ -443,6 +510,7 @@ static void add_port_subsys(struct etcd_cdc_ctx *ctx,
 	if (debug_inotify)
 		printf("link port %s to subsys %s\n",
 		       port->port_id, subsys->subsysnqn);
+	db_update_subsys_port(ctx, subsys, port, OP_ADD);
 }
 
 static void link_port_subsys(struct etcd_cdc_ctx *ctx,
@@ -536,6 +604,7 @@ static void add_subsys_host(struct etcd_cdc_ctx *ctx,
 	if (debug_inotify)
 		printf("link host %s to subsys %s\n",
 		       host->hostnqn, subsys->subsysnqn);
+	db_update_host_subsys(ctx, host, subsys, OP_ADD);
 }
 
 static void link_subsys_host(struct etcd_cdc_ctx *ctx,
@@ -598,6 +667,8 @@ static void watch_subsys(int fd, struct etcd_cdc_ctx *ctx,
 	attr_read_int(subsys->watcher.dirname,
 		      "attr_allow_any_host",
 		      &subsys->allow_any);
+	if (subsys->allow_any)
+		db_update_host_subsys(ctx, NULL, subsys, OP_ADD);
 
 	sprintf(ah_dir, "%s/%s/allowed_hosts",
 		subsys_dir, subnqn);
@@ -807,6 +878,9 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 					printf("unlink subsys %s from port %s\n",
 					       ev->name, port->port_id);
 				list_del_init(&port_subsys->entry);
+				db_update_subsys_port(ctx,
+						      port_subsys->subsys,
+						      port, OP_DEL);
 				free(port_subsys);
 			}
 			break;
@@ -834,11 +908,13 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 					printf("unlink host %s from subsys %s\n",
 					       ev->name, subsys->subsysnqn);
 				list_del_init(&subsys_host->entry);
+				db_update_host_subsys(ctx, subsys_host->host,
+						      subsys, OP_DEL);
 				free(subsys_host);
 			}
 			break;
 		default:
-			remove_watch(fd, watcher);
+			remove_watch(fd, ctx, watcher);
 			break;
 		}
 	} else if (ev->mask & IN_MODIFY) {
@@ -869,6 +945,12 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 				attr_read_int(subsys->watcher.dirname,
 					      "attr_allow_any_host",
 					      &subsys->allow_any);
+				if (subsys->allow_any)
+					db_update_host_subsys(ctx, NULL,
+							      subsys, OP_ADD);
+				else
+					db_update_host_subsys(ctx, NULL,
+							      subsys, OP_DEL);
 			} else {
 				if (debug_inotify)
 					printf("unknown attribute %s/%s\n",
@@ -961,12 +1043,12 @@ int watch_subsys_dir(int fd, struct etcd_cdc_ctx *ctx)
 	return 0;
 }
 
-void cleanup_watcher(int fd)
+void cleanup_watcher(int fd, struct etcd_cdc_ctx *ctx)
 {
 	struct dir_watcher *watcher, *tmp_watch;
 
     	list_for_each_entry_safe(watcher, tmp_watch, &dir_watcher_list, entry) {
-		remove_watch(fd, watcher);
+		remove_watch(fd, ctx, watcher);
 	}
 }
 
@@ -978,6 +1060,9 @@ void inotify_loop(struct etcd_cdc_ctx *ctx)
 	struct timeval tmo;
 	char event_buffer[INOTIFY_BUFFER_SIZE]
 		__attribute__ ((aligned(__alignof__(struct inotify_event))));
+
+	if (ctx->debug > 1)
+		debug_inotify = 1;
 
 	sigemptyset(&sigmask);
 	sigaddset(&sigmask, SIGINT);
@@ -1065,7 +1150,7 @@ void inotify_loop(struct etcd_cdc_ctx *ctx)
 			iev_buf += iev_len;
 		}
 	}
-	cleanup_watcher(inotify_fd);
+	cleanup_watcher(inotify_fd, ctx);
 
 	close(inotify_fd);
 	close(signal_fd);
