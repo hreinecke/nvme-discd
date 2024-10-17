@@ -164,6 +164,32 @@ static void db_update_host_subsys(struct etcd_cdc_ctx *ctx,
 	}
 }
 
+static void db_modify_port(struct etcd_cdc_ctx *ctx,
+			   struct nvmet_port *port)
+{
+	struct nvmet_port_subsys *port_subsys;
+
+	list_for_each_entry(port_subsys, &port->subsystems, entry) {
+		struct nvmet_subsys_host *subsys_host;
+		struct nvmet_subsys *subsys = port_subsys->subsys;
+
+		if (subsys->allow_any) {
+			printf("MODIFY <none>/%s/%s\n",
+			       subsys->subsysnqn,
+			       port->port_id);
+			continue;
+		}
+		list_for_each_entry(subsys_host, &subsys->hosts, entry) {
+			struct nvmet_host *host = subsys_host->host;
+
+			printf("MODIFY %s/%s/%s\n",
+			       host->hostnqn,
+			       subsys->subsysnqn,
+			       port->port_id);
+		}
+	}
+}
+
 static struct dir_watcher *find_watcher(enum watcher_type type, char *path)
 {
 	struct dir_watcher *watcher;
@@ -931,6 +957,7 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 					    watcher);
 			if (!strncmp(ev->name, "addr_", 5)) {
 				port_read_attr(port, ev->name + 5);
+				db_modify_port(ctx, port);
 			} else {
 				fprintf(stderr,
 					"%s: invalid port attribute %s\n",
