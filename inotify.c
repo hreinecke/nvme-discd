@@ -1101,13 +1101,15 @@ void inotify_loop(struct etcd_cdc_ctx *ctx)
 	inotify_fd = inotify_init();
 	if (inotify_fd < 0) {
 		fprintf(stderr, "Could not setup inotify, error %d\n", errno);
-		close(signal_fd);
-		return;
+		goto out_signal;
 	}
 
-	watch_hosts_dir(inotify_fd, ctx);
-	watch_subsys_dir(inotify_fd, ctx);
-	watch_ports_dir(inotify_fd, ctx);
+	if (watch_hosts_dir(inotify_fd, ctx) < 0)
+		goto out_inotify;
+	if (watch_subsys_dir(inotify_fd, ctx) < 0)
+		goto out_cleanup;
+	if (watch_ports_dir(inotify_fd, ctx) < 0)
+		goto out_cleanup;
 
 	for (;;) {
 		int rlen, ret;
@@ -1171,9 +1173,11 @@ void inotify_loop(struct etcd_cdc_ctx *ctx)
 			iev_buf += iev_len;
 		}
 	}
+out_cleanup:
 	cleanup_watcher(inotify_fd, ctx);
-
+out_inotify:
 	close(inotify_fd);
+out_signal:
 	close(signal_fd);
 }
 
