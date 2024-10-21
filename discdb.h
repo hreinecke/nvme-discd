@@ -4,6 +4,6 @@
 int discdb_init(void);
 int discdb_exit(void);
 int discdb_open(const char *filename);
-void discdb_close(void);
+void discdb_close(const char *filename);
 
 #endif

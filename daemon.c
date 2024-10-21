@@ -105,7 +105,7 @@ int main (int argc, char *argv[])
 
 	inotify_loop(ctx);
 
-	discdb_close();
+	discdb_close(ctx->dbfile);
 
 	free(ctx);
 	return 0;
