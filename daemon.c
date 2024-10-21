@@ -37,8 +37,10 @@
 #include <sys/inotify.h>
 
 #include "common.h"
+#include "discdb.h"
 
 static char *default_configfs = "/sys/kernel/config/nvmet";
+static char *default_dbfile = "nvme_discdb.sqlite";
 
 void inotify_loop(struct etcd_cdc_ctx *);
 
@@ -92,10 +94,18 @@ int main (int argc, char *argv[])
 	ctx->configfs = default_configfs;
 	ctx->ttl = 10;
 	ctx->genctr = 1;
+	ctx->dbfile = default_dbfile;
 
 	parse_opts(ctx, argc, argv);
 
+	if (discdb_open(ctx->dbfile)) {
+		free(ctx);
+		exit(1);
+	}
+
 	inotify_loop(ctx);
+
+	discdb_close();
 
 	free(ctx);
 	return 0;

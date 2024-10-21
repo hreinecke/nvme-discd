@@ -1,7 +1,8 @@
 
 PRG = nvme_discd
-PRG_OBJS = daemon.o inotify.o
+PRG_OBJS = daemon.o inotify.o discdb.o
 CFLAGS = -Wall -g
+LIBS = -lsqlite3
 
 all:	$(PRG)
 

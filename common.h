@@ -143,6 +143,7 @@ struct etcd_cdc_ctx {
 	char *hostnqn;
 	char *configfs;
 	char *prefix;
+	char *dbfile;
 	int genctr;
 	int ttl;
 	int debug;
