@@ -9,12 +9,23 @@
 
 static sqlite3 *nvme_db;
 
+static int sql_simple_cb(void *unused, int argc, char **argv, char **colname)
+{
+	   int i;
+
+	   for (i = 0; i < argc; i++) {
+		   printf("%s = %s\n", colname[i],
+			  argv[i] ? argv[i] : "NULL");
+	   }
+	   return 0;
+}
+
 static int sql_exec_simple(const char *sql_str)
 {
 	int ret;
 	char *errmsg = NULL;
 
-	ret = sqlite3_exec(nvme_db, sql_str, NULL, NULL, &errmsg);
+	ret = sqlite3_exec(nvme_db, sql_str, sql_simple_cb, NULL, &errmsg);
 	if (ret != SQLITE_OK) {
 		fprintf(stderr, "SQL error executing %s\n", sql_str);
 		fprintf(stderr, "SQL error: %s\n", errmsg);
@@ -86,11 +97,12 @@ int discdb_add_host(struct nvmet_host *host)
 		return ret;
 	ret = sql_exec_simple(sql);
 	free(sql);
+
 	return ret;
 }
 
 static char del_host_sql[] =
-	"DELETE FROM host (nqn) SELECT nqn FROM host WHERE nqn LIKE '%s';";
+	"DELETE FROM host WHERE nqn LIKE '%s';";
 
 int discdb_del_host(struct nvmet_host *host)
 {
@@ -122,7 +134,7 @@ int discdb_add_subsys(struct nvmet_subsys *subsys)
 }
 
 static char del_subsys_sql[] =
-	"DELETE FROM subsys (nqn) SELECT nqn FROM subsys WHERE nqn LIKE '%s';";
+	"DELETE FROM subsys WHERE nqn LIKE '%s';";
 
 int discdb_del_subsys(struct nvmet_subsys *subsys)
 {
@@ -157,7 +169,7 @@ int discdb_add_port(struct nvmet_port *port)
 }
 
 static char del_port_sql[] =
-	"DELETE FROM port SELECT port_id FROM port WHERE port_id = '%d';";
+	"DELETE FROM port WHERE portid = '%d';";
 
 int discdb_del_port(struct nvmet_port *port)
 {
@@ -193,8 +205,9 @@ int discdb_add_host_subsys(struct nvmet_host *host, struct nvmet_subsys *subsys)
 
 static char del_host_subsys_sql[] =
 	"DELETE FROM host_subsys "
-	"SELECT host.id, subsys.id FROM host, subsys "
-	"WHERE host.nqn LIKE '%s' AND subsys.nqn LIKE '%s';";
+	"WHERE host_subsys.host_id in "
+	"(SELECT id FROM host WHERE nqn LIKE '%s') AND "
+	"(SELECT id FROM subsys WHERE nqn LIKE '%s');";
 
 int discdb_del_host_subsys(struct nvmet_host *host, struct nvmet_subsys *subsys)
 {
@@ -231,9 +244,10 @@ int discdb_add_subsys_port(struct nvmet_subsys *subsys, struct nvmet_port *port)
 
 static char del_subsys_port_sql[] =
 	"DELETE FROM subsys_port "
-	"SELECT subsys.id, port.portid FROM subsys, port, subsys_port"
-	"WHERE subsys.nqn LIKE '%s' AND port.portid = %d AND "
-	"subsys_port.subsys_id = subsys.id AND subsys_port.portid = port.portid;";
+	"WHERE subsys_port.subsys_id in ("
+	"SELECT id FROM subsys WHERE nqn LIKE '%s') AND "
+	"subsys_port.port_id IN ("
+	"SELECT port_id FROM port WHERE port_id = %d);";
 
 int discdb_del_subsys_port(struct nvmet_subsys *subsys, struct nvmet_port *port)
 {
