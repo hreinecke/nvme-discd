@@ -41,7 +41,7 @@ static int sql_exec_simple(const char *sql_str)
 
 static const char *init_sql[5] = {
 "CREATE TABLE host ( id INTEGER PRIMARY KEY AUTOINCREMENT, "
-"nqn VARCHAR(223) UNIQUE NOT NULL);",
+"nqn VARCHAR(223) UNIQUE NOT NULL, genctr INTEGER DEFAULT 0);",
 "CREATE TABLE subsys ( id INTEGER PRIMARY KEY AUTOINCREMENT, "
 "nqn VARCHAR(223) UNIQUE NOT NULL, allow_any INT DEFAULT 1);",
 "CREATE TABLE port ( portid INT NOT NULL PRIMARY KEY,"
@@ -209,6 +209,8 @@ int discdb_add_host_subsys(struct nvmet_host *host, struct nvmet_subsys *subsys)
 	ret = sql_exec_simple("SELECT host.nqn AS host_nqn, subsys.nqn AS subsys_nqn FROM host_subsys INNER JOIN subsys ON subsys.id = host_subsys.subsys_id INNER JOIN host ON host.id = host_subsys.host_id;");
 	if (ret)
 		return ret;
+	ret = sql_exec_simple("UPDATE host SET genctr = genctr + 1 "
+			      "WHERE nqn LIKE '%s';", host->hostnqn);
 	return ret;
 }
 
@@ -285,6 +287,8 @@ int discdb_add_subsys_port(struct nvmet_subsys *subsys, struct nvmet_port *port)
 	ret = sql_exec_simple(select_subsys_port_sql);
 	if (ret)
 		return ret;
+	ret = sql_exec_simple("UPDATE host SET genctr = genctr + 1 "
+			      "WHERE nqn LIKE '%s';", host->hostnqn);
 	return ret;
 }
 
