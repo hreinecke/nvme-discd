@@ -21,5 +21,6 @@ $(TEST): $(TEST_OBJS) $(B64)
 clean:
 	$(RM) $(TEST_OBJS) $(PRG_OBJS) $(DISC_OBJS) $(PRG) $(TEST) $(DISC)
 
-daemon.c: common.h list.h
-inotify.c: list.h
+daemon.c: common.h list.h discdb.h
+inotify.c: list.h discdb.h
+discdb.c: common.h discdb.h
