@@ -14,9 +14,14 @@ static int sql_simple_cb(void *unused, int argc, char **argv, char **colname)
 	   int i;
 
 	   for (i = 0; i < argc; i++) {
-		   printf("%s = %s\n", colname[i],
+		   printf("%s ", colname[i]);
+	   }
+	   printf("\n");
+	   for (i = 0; i < argc; i++) {
+		   printf("%s ",
 			  argv[i] ? argv[i] : "NULL");
 	   }
+	   printf("\n");
 	   return 0;
 }
 
@@ -43,12 +48,12 @@ static const char *init_sql[5] = {
 "trtype INT DEFAULT 3, adrfam INT DEFAULT 1, subtype INT DEFAULT 2, "
 "treq INT DEFAULT 0, traddr CHAR(255) NOT NULL, "
 "trsvcid CHAR(32) DEFAULT '', tsas CHAR(255) DEFAULT '');",
-"CREATE TABLE host_subsys ( host_id INT NOT NULL, subsys_id INT NOT NULL, "
+"CREATE TABLE host_subsys ( host_id INTEGER, subsys_id INTEGER, "
 "FOREIGN KEY (host_id) REFERENCES host(id) "
 "ON UPDATE CASCADE ON DELETE RESTRICT, "
 "FOREIGN KEY (subsys_id) REFERENCES subsys(id) "
 "ON UPDATE CASCADE ON DELETE RESTRICT);",
-"CREATE TABLE subsys_port ( subsys_id INT NOT NULL, port_id INT NOT NULL, "
+"CREATE TABLE subsys_port ( subsys_id INTEGER, port_id INTEGER, "
 "FOREIGN KEY (subsys_id) REFERENCES subsys(id) "
 "ON UPDATE CASCADE ON DELETE RESTRICT, "
 "FOREIGN KEY (port_id) REFERENCES port(portid) "
@@ -200,6 +205,10 @@ int discdb_add_host_subsys(struct nvmet_host *host, struct nvmet_subsys *subsys)
 		return ret;
 	ret = sql_exec_simple(sql);
 	free(sql);
+	printf("Contents of 'host_subsys':\n");
+	ret = sql_exec_simple("SELECT host.nqn AS host_nqn, subsys.nqn AS subsys_nqn FROM host_subsys INNER JOIN subsys ON subsys.id = host_subsys.subsys_id INNER JOIN host ON host.id = host_subsys.host_id;");
+	if (ret)
+		return ret;
 	return ret;
 }
 
@@ -225,20 +234,57 @@ int discdb_del_host_subsys(struct nvmet_host *host, struct nvmet_subsys *subsys)
 
 static char add_subsys_port_sql[] =
 	"INSERT INTO subsys_port (subsys_id, port_id) "
-	"SELECT subsys.id, port.portid FROM subsys, port "
-	"WHERE subsys.nqn LIKE '%s' AND port.portid = %d;";
+	"VALUES (%d, %d);";
+
+static int sql_value_cb(void *val, int argc, char **argv, char **colname)
+{
+	int i, retval;
+
+	for (i = 0; i < argc; i++) {
+		char *eptr = NULL;
+
+		if (!strcmp(colname[i], "id")) {
+			retval = strtoul(argv[i], &eptr, 10);
+			if (argv[i] != eptr)
+				*(int *)val = retval;
+		}
+	}
+	return 0;
+}
+
+static char select_subsys_port_sql[] =
+	"SELECT subsys.nqn, subsys_port.port_id "
+	"FROM subsys_port "
+	"INNER JOIN subsys ON subsys.id = subsys_port.subsys_id;";
 
 int discdb_add_subsys_port(struct nvmet_subsys *subsys, struct nvmet_port *port)
 {
-	char *sql;
-	int ret;
+	char *sql, *errmsg = NULL;
+	int ret, val;
+
+	ret = asprintf(&sql, "SELECT id FROM subsys WHERE nqn LIKE '%s';",
+		       subsys->subsysnqn);
+	if (ret < 0)
+		return ret;
+
+	ret = sqlite3_exec(nvme_db, sql, sql_value_cb, &val, &errmsg);
+	if (ret != SQLITE_OK) {
+		fprintf(stderr, "SQL error executing %s\n", sql);
+		fprintf(stderr, "SQL error: %s\n", errmsg);
+		sqlite3_free(errmsg);
+	}
+	free(sql);
 
 	ret = asprintf(&sql, add_subsys_port_sql,
-		       subsys->subsysnqn, port->port_id);
+		       val, port->port_id);
 	if (ret < 0)
 		return ret;
 	ret = sql_exec_simple(sql);
 	free(sql);
+	printf("Contents of 'subsys_port':\n");
+	ret = sql_exec_simple(select_subsys_port_sql);
+	if (ret)
+		return ret;
 	return ret;
 }
 
@@ -247,7 +293,7 @@ static char del_subsys_port_sql[] =
 	"WHERE subsys_port.subsys_id in ("
 	"SELECT id FROM subsys WHERE nqn LIKE '%s') AND "
 	"subsys_port.port_id IN ("
-	"SELECT port_id FROM port WHERE port_id = %d);";
+	"SELECT portid FROM port WHERE portid = %d);";
 
 int discdb_del_subsys_port(struct nvmet_subsys *subsys, struct nvmet_port *port)
 {
@@ -256,6 +302,48 @@ int discdb_del_subsys_port(struct nvmet_subsys *subsys, struct nvmet_port *port)
 
 	ret = asprintf(&sql, del_subsys_port_sql,
 		       subsys->subsysnqn, port->port_id);
+	if (ret < 0)
+		return ret;
+	ret = sql_exec_simple(sql);
+	free(sql);
+	return ret;
+}
+
+static char host_disc_entry_sql[] =
+	"SELECT host.nqn AS host_nqn, subsys.nqn AS subsys_nqn, subsys_port.port_id AS portid "
+	"FROM subsys_port "
+	"INNER JOIN subsys ON subsys.id = subsys_port.subsys_id "
+	"INNER JOIN host_subsys ON host_subsys.subsys_id = subsys_port.subsys_id "
+	"INNER JOIN host ON host_subsys.host_id = host.id AND host.nqn LIKE '%s';";
+
+int discdb_host_disc_entries(struct nvmet_host *host)
+{
+	char *sql;
+	int ret;
+
+	printf("Display disc entries for %s\n", host->hostnqn);
+	ret = asprintf(&sql, host_disc_entry_sql, host->hostnqn);
+	if (ret < 0)
+		return ret;
+	ret = sql_exec_simple(sql);
+	free(sql);
+	return ret;
+}
+
+static char subsys_disc_entry_sql[] =
+	"SELECT host.nqn AS host_nqn, subsys.nqn AS subsys_nqn, subsys_port.port_id AS portid "
+	"FROM subsys_port "
+	"INNER JOIN subsys ON subsys.id = subsys_port.subsys_id AND subsys.nqn LIKE '%s' "
+	"INNER JOIN host_subsys ON host_subsys.subsys_id = subsys_port.subsys_id "
+	"INNER JOIN host ON host_subsys.host_id = host.id;";
+
+int discdb_subsys_disc_entries(struct nvmet_subsys *subsys)
+{
+	char *sql;
+	int ret;
+
+	printf("Display disc entries for %s\n", subsys->subsysnqn);
+	ret = asprintf(&sql, subsys_disc_entry_sql, subsys->subsysnqn);
 	if (ret < 0)
 		return ret;
 	ret = sql_exec_simple(sql);

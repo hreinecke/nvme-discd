@@ -270,6 +270,7 @@ static int remove_watch(int fd, struct etcd_cdc_ctx *ctx,
 			list_del_init(&port_subsys->entry);
 			free(port_subsys);
 			discdb_del_subsys_port(&subsys->subsys, &port->port);
+			discdb_subsys_disc_entries(&subsys->subsys);
 		}
 		free(watcher);
 		break;
@@ -457,6 +458,7 @@ static void add_port_subsys(struct etcd_cdc_ctx *ctx,
 		printf("link port %d to subsys %s\n",
 		       port->port.port_id, subsys->subsys.subsysnqn);
 	discdb_add_subsys_port(&subsys->subsys, &port->port);
+	discdb_subsys_disc_entries(&subsys->subsys);
 }
 
 static void link_port_subsys(struct etcd_cdc_ctx *ctx,
@@ -560,6 +562,7 @@ static void add_subsys_host(struct etcd_cdc_ctx *ctx,
 		printf("link host %s to subsys %s\n",
 		       host->host.hostnqn, subsys->subsys.subsysnqn);
 	discdb_add_host_subsys(&host->host, &subsys->subsys);
+	discdb_host_disc_entries(&host->host);
 }
 
 static void link_subsys_host(struct etcd_cdc_ctx *ctx,
@@ -746,7 +749,6 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 	} else if (ev->mask & IN_DELETE_SELF) {
 		struct inotify_port *port;
 		struct inotify_subsys *subsys;
-		struct inotify_host *host;
 		char path[PATH_MAX + 1];
 
 		if (debug_inotify)
@@ -769,6 +771,7 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 				list_del_init(&watcher->entry);
 				free(watcher);
 			}
+			discdb_del_port(&port->port);
 			free(port);
 			break;
 		case TYPE_SUBSYS:
@@ -785,15 +788,11 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 				list_del_init(&watcher->entry);
 				free(watcher);
 			}
+			discdb_del_subsys(&subsys->subsys);
 			free(subsys);
 			break;
-		case TYPE_HOST:
-			host = container_of(watcher,
-					    struct inotify_host, watcher);
-			free(host);
-			break;
 		default:
-			free(watcher);
+			remove_watch(fd, ctx, watcher);
 			break;
 		}
 	} else if (ev->mask & IN_DELETE) {
@@ -838,6 +837,7 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 				free(port_subsys);
 				discdb_del_subsys_port(&subsys->subsys,
 						       &port->port);
+				discdb_subsys_disc_entries(&subsys->subsys);
 			}
 			break;
 		case TYPE_SUBSYS_HOSTS_DIR:
