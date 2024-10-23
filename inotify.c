@@ -511,6 +511,7 @@ static void watch_port(int fd, struct etcd_cdc_ctx *ctx,
 			free(port);
 		return;
 	}
+	discdb_add_port(&port->port);
 
 	strcpy(subsys_dir, port->watcher.dirname);
 	strcat(subsys_dir, "/subsystems");

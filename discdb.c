@@ -195,7 +195,7 @@ static char add_host_subsys_sql[] =
 	"WHERE host.nqn LIKE '%s' AND subsys.nqn LIKE '%s';";
 
 static char select_host_subsys_sql[] =
-	"SELECT host.nqn AS host_nqn, subsys.nqn AS subsys_nqn "
+	"SELECT h.nqn AS host_nqn, s.nqn AS subsys_nqn "
 	"FROM host_subsys AS hs "
 	"INNER JOIN subsys AS s ON s.id = hs.subsys_id "
 	"INNER JOIN host AS h ON h.id = hs.host_id;";
@@ -246,49 +246,22 @@ int discdb_del_host_subsys(struct nvmet_host *host, struct nvmet_subsys *subsys)
 
 static char add_subsys_port_sql[] =
 	"INSERT INTO subsys_port (subsys_id, port_id) "
-	"VALUES (%d, %d);";
-
-static int sql_value_cb(void *val, int argc, char **argv, char **colname)
-{
-	int i, retval;
-
-	for (i = 0; i < argc; i++) {
-		char *eptr = NULL;
-
-		if (!strcmp(colname[i], "id")) {
-			retval = strtoul(argv[i], &eptr, 10);
-			if (argv[i] != eptr)
-				*(int *)val = retval;
-		}
-	}
-	return 0;
-}
+	"SELECT subsys.id, port.portid FROM subsys, port "
+	"WHERE subsys.nqn LIKE '%s' AND port.portid = '%d';";
 
 static char select_subsys_port_sql[] =
-	"SELECT subsys.nqn, subsys_port.port_id "
-	"FROM subsys_port "
-	"INNER JOIN subsys ON subsys.id = subsys_port.subsys_id;";
+	"SELECT s.nqn, p.portid, p.trtype, p.traddr "
+	"FROM subsys_port AS sp "
+	"INNER JOIN subsys AS s ON s.id = sp.subsys_id "
+	"INNER JOIN port AS p ON p.portid = sp.port_id;";
 
 int discdb_add_subsys_port(struct nvmet_subsys *subsys, struct nvmet_port *port)
 {
-	char *sql, *errmsg = NULL;
-	int ret, val;
-
-	ret = asprintf(&sql, "SELECT id FROM subsys WHERE nqn LIKE '%s';",
-		       subsys->subsysnqn);
-	if (ret < 0)
-		return ret;
-
-	ret = sqlite3_exec(nvme_db, sql, sql_value_cb, &val, &errmsg);
-	if (ret != SQLITE_OK) {
-		fprintf(stderr, "SQL error executing %s\n", sql);
-		fprintf(stderr, "SQL error: %s\n", errmsg);
-		sqlite3_free(errmsg);
-	}
-	free(sql);
+	char *sql;
+	int ret;
 
 	ret = asprintf(&sql, add_subsys_port_sql,
-		       val, port->port_id);
+		       subsys->subsysnqn, port->port_id);
 	if (ret < 0)
 		return ret;
 	ret = sql_exec_simple(sql);
