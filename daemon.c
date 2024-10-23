@@ -42,7 +42,7 @@
 static char *default_configfs = "/sys/kernel/config/nvmet";
 static char *default_dbfile = "nvme_discdb.sqlite";
 
-void inotify_loop(struct etcd_cdc_ctx *);
+void *inotify_loop(void *);
 
 int parse_opts(struct etcd_cdc_ctx *ctx, int argc, char *argv[])
 {
@@ -85,6 +85,10 @@ int parse_opts(struct etcd_cdc_ctx *ctx, int argc, char *argv[])
 int main (int argc, char *argv[])
 {
 	struct etcd_cdc_ctx *ctx;
+	sigset_t sigmask;
+	int signal_fd, ret = 0;
+	pthread_t inotify_thread;
+	pthread_attr_t pthread_attr;
 
 	ctx = malloc(sizeof(*ctx));
 	if (!ctx) {
@@ -99,14 +103,83 @@ int main (int argc, char *argv[])
 	parse_opts(ctx, argc, argv);
 
 	if (discdb_open(ctx->dbfile)) {
-		free(ctx);
-		exit(1);
+		ret = 1;
+		goto out_free_ctx;
 	}
 
-	inotify_loop(ctx);
+	pthread_attr_init(&pthread_attr);
+	ret = pthread_create(&inotify_thread, &pthread_attr,
+			     inotify_loop, ctx);
+	pthread_attr_destroy(&pthread_attr);
+	if (ret) {
+		inotify_thread = 0;
+		fprintf(stderr, "failed to create inotify pthread: %d\n", ret);
+		ret = 0;
+		goto out_close_db;
+	}
 
+	sigemptyset(&sigmask);
+	sigaddset(&sigmask, SIGINT);
+	sigaddset(&sigmask, SIGTERM);
+
+	if (sigprocmask(SIG_BLOCK, &sigmask, NULL) < 0) {
+		fprintf(stderr, "Couldn't block signals, error %d\n", errno);
+		ret = 1;
+		pthread_kill(inotify_thread, SIGTERM);
+		goto out_join;
+	}
+	signal_fd = signalfd(-1, &sigmask, 0);
+	if (signal_fd < 0) {
+		fprintf(stderr, "Couldn't setup signal fd, error %d\n", errno);
+		ret = 1;
+		pthread_kill(inotify_thread, SIGTERM);
+		goto out_join;
+	}
+
+	for (;;) {
+		int rlen, ret;
+		fd_set rfd;
+		struct timeval tmo;
+
+		FD_ZERO(&rfd);
+		FD_SET(signal_fd, &rfd);
+		tmo.tv_sec = ctx->ttl / 5;
+		tmo.tv_usec = 0;
+		ret = select(signal_fd + 1, &rfd, NULL, NULL, &tmo);
+		if (ret < 0) {
+			if (errno == EINTR)
+				continue;
+			fprintf(stderr, "select returned %d\n", errno);
+			break;
+		}
+		if (ret == 0)
+			continue;
+		if (FD_ISSET(signal_fd, &rfd)) {
+			struct signalfd_siginfo fdsi;
+
+			rlen = read(signal_fd, &fdsi, sizeof(fdsi));
+			if (rlen != sizeof(fdsi)) {
+				fprintf(stderr, "Couldn't read siginfo\n");
+				ret = 1;
+				break;
+			}
+			if (fdsi.ssi_signo == SIGINT ||
+			    fdsi.ssi_signo == SIGTERM) {
+				fprintf(stderr,
+					"signal %d received, terminating\n",
+					fdsi.ssi_signo);
+				pthread_kill(inotify_thread, SIGTERM);
+				break;
+			}
+		}
+	}
+
+	close(signal_fd);
+out_join:
+	pthread_join(inotify_thread, NULL);
+out_close_db:
 	discdb_close(ctx->dbfile);
-
+out_free_ctx:
 	free(ctx);
-	return 0;
+	return ret;
 }

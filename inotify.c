@@ -1006,10 +1006,11 @@ void cleanup_watcher(int fd, struct etcd_cdc_ctx *ctx)
 	}
 }
 
-void inotify_loop(struct etcd_cdc_ctx *ctx)
+void *inotify_loop(void *arg)
 {
+	struct etcd_cdc_ctx *ctx = arg;
 	sigset_t sigmask;
-	int inotify_fd, signal_fd;
+	int inotify_fd;
 	fd_set rfd;
 	struct timeval tmo;
 	char event_buffer[INOTIFY_BUFFER_SIZE]
@@ -1019,22 +1020,14 @@ void inotify_loop(struct etcd_cdc_ctx *ctx)
 		debug_inotify = 1;
 
 	sigemptyset(&sigmask);
+	sigaddset(&sigmask, SIGPIPE);
 	sigaddset(&sigmask, SIGINT);
-	sigaddset(&sigmask, SIGTERM);
+	pthread_sigmask(SIG_BLOCK, &sigmask, NULL);
 
-	if (sigprocmask(SIG_BLOCK, &sigmask, NULL) < 0) {
-		fprintf(stderr, "Couldn't block signals, error %d\n", errno);
-		return;
-	}
-	signal_fd = signalfd(-1, &sigmask, 0);
-	if (signal_fd < 0) {
-		fprintf(stderr, "Couldn't setup signal fd, error %d\n", errno);
-		return;
-	}
 	inotify_fd = inotify_init();
 	if (inotify_fd < 0) {
 		fprintf(stderr, "Could not setup inotify, error %d\n", errno);
-		goto out_signal;
+		goto out;
 	}
 
 	if (watch_hosts_dir(inotify_fd, ctx) < 0)
@@ -1049,7 +1042,6 @@ void inotify_loop(struct etcd_cdc_ctx *ctx)
 		char *iev_buf;
 
 		FD_ZERO(&rfd);
-		FD_SET(signal_fd, &rfd);
 		FD_SET(inotify_fd, &rfd);
 		tmo.tv_sec = ctx->ttl / 5;
 		tmo.tv_usec = 0;
@@ -1063,28 +1055,6 @@ void inotify_loop(struct etcd_cdc_ctx *ctx)
 		if (ret == 0) {
 			/* Select timeout*/
 			continue;
-		}
-		if (!FD_ISSET(inotify_fd, &rfd)) {
-			struct signalfd_siginfo fdsi;
-
-			if (!FD_ISSET(signal_fd, &rfd)) {
-				fprintf(stderr,
-					"select returned for invalid fd");
-				continue;
-			}
-			rlen = read(signal_fd, &fdsi, sizeof(fdsi));
-			if (rlen != sizeof(fdsi)) {
-				fprintf(stderr,
-					"Couldn't read siginfo\n");
-				exit(1);
-			}
-			if (fdsi.ssi_signo == SIGINT ||
-			    fdsi.ssi_signo == SIGTERM) {
-				fprintf(stderr,
-					"signal %d received, terminating\n",
-					fdsi.ssi_signo);
-				break;
-			}
 		}
 		rlen = read(inotify_fd, event_buffer, INOTIFY_BUFFER_SIZE);
 		if (rlen < 0) {
@@ -1110,7 +1080,8 @@ out_cleanup:
 	cleanup_watcher(inotify_fd, ctx);
 out_inotify:
 	close(inotify_fd);
-out_signal:
-	close(signal_fd);
+out:
+	pthread_exit(NULL);
+	return NULL;
 }
 
