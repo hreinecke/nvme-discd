@@ -319,6 +319,26 @@ int discdb_del_subsys_port(struct nvmet_subsys *subsys, struct nvmet_port *port)
 	return ret;
 }
 
+static int sql_disc_entry_cb(void *unused, int argc, char **argv, char **colname)
+{
+	   int i;
+
+	   for (i = 0; i < argc; i++) {
+		   printf("%s ", colname[i]);
+	   }
+	   printf("\n");
+	   for (i = 0; i < argc; i++) {
+		   if (!strcmp(colname[i], "portid") ||
+		       !strcmp(colname[i], "genctr"))
+			   printf("%s ", argv[i]);
+		   else
+			   printf("'%s' ",
+				  argv[i] ? argv[i] : "NULL");
+	   }
+	   printf("\n");
+	   return 0;
+}
+
 static char host_disc_entry_sql[] =
 	"SELECT h.nqn AS host_nqn, h.genctr, s.nqn AS subsys_nqn, "
 	"p.portid, p.trtype, p.traddr, p.trsvcid, p.treq, p.tsas "
@@ -331,14 +351,19 @@ static char host_disc_entry_sql[] =
 
 int discdb_host_disc_entries(struct nvmet_host *host)
 {
-	char *sql;
+	char *sql, *errmsg;
 	int ret;
 
 	printf("Display disc entries for %s\n", host->hostnqn);
 	ret = asprintf(&sql, host_disc_entry_sql, host->hostnqn);
 	if (ret < 0)
 		return ret;
-	ret = sql_exec_simple(sql);
+	ret = sqlite3_exec(nvme_db, sql, sql_disc_entry_cb, NULL, &errmsg);
+	if (ret != SQLITE_OK) {
+		fprintf(stderr, "SQL error executing %s\n", sql);
+		fprintf(stderr, "SQL error: %s\n", errmsg);
+		sqlite3_free(errmsg);
+	}
 	free(sql);
 	return ret;
 }
@@ -355,14 +380,19 @@ static char subsys_disc_entry_sql[] =
 
 int discdb_subsys_disc_entries(struct nvmet_subsys *subsys)
 {
-	char *sql;
+	char *sql, *errmsg;
 	int ret;
 
 	printf("Display disc entries for %s\n", subsys->subsysnqn);
 	ret = asprintf(&sql, subsys_disc_entry_sql, subsys->subsysnqn);
 	if (ret < 0)
 		return ret;
-	ret = sql_exec_simple(sql);
+	ret = sqlite3_exec(nvme_db, sql, sql_disc_entry_cb, NULL, &errmsg);
+	if (ret != SQLITE_OK) {
+		fprintf(stderr, "SQL error executing %s\n", sql);
+		fprintf(stderr, "SQL error: %s\n", errmsg);
+		sqlite3_free(errmsg);
+	}
 	free(sql);
 	return ret;
 }

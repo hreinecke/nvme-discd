@@ -387,8 +387,8 @@ static int port_read_attr(struct inotify_port *p, char *attr)
 	fd = open(attr_path, O_RDONLY);
 	if (fd < 0) {
 		if (!strcmp(attr, "tsas")) {
-			strcpy(attr_buf, "none");
-			return 4;
+			*attr_buf = '\0';
+			return 0;
 		}
 		fprintf(stderr, "%s: port %d failed to open '%s', error %d\n",
 			__func__, port->port_id, attr_path, errno);
