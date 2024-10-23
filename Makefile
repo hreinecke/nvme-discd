@@ -1,6 +1,6 @@
 
 PRG = nvme_discd
-PRG_OBJS = daemon.o inotify.o discdb.o
+PRG_OBJS = daemon.o inotify.o discdb.o interface.o
 CFLAGS = -Wall -g
 LIBS = -lsqlite3 -lpthread
 

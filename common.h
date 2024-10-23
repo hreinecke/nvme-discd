@@ -213,4 +213,7 @@ int endpoint_update_qdepth(struct endpoint *ep, int qsize);
 
 u8 *nvmet_etcd_disc_log(struct etcd_cdc_ctx *ctx, char *hostnqn, size_t *len);
 
+int interface_from_port(struct etcd_cdc_ctx *ctx,
+			struct nvmet_port *port);
+
 #endif

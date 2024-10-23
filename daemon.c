@@ -44,6 +44,8 @@ static char *default_dbfile = "nvme_discdb.sqlite";
 
 void *inotify_loop(void *);
 
+int stopped = 0;
+
 int parse_opts(struct etcd_cdc_ctx *ctx, int argc, char *argv[])
 {
 	struct option getopt_arg[] = {
@@ -122,7 +124,7 @@ int main (int argc, char *argv[])
 	sigaddset(&sigmask, SIGINT);
 	sigaddset(&sigmask, SIGTERM);
 
-	if (sigprocmask(SIG_BLOCK, &sigmask, NULL) < 0) {
+	if (pthread_sigmask(SIG_BLOCK, &sigmask, NULL) < 0) {
 		fprintf(stderr, "Couldn't block signals, error %d\n", errno);
 		ret = 1;
 		pthread_kill(inotify_thread, SIGTERM);
@@ -168,6 +170,7 @@ int main (int argc, char *argv[])
 				fprintf(stderr,
 					"signal %d received, terminating\n",
 					fdsi.ssi_signo);
+				stopped = 1;
 				pthread_kill(inotify_thread, SIGTERM);
 				break;
 			}

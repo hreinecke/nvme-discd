@@ -1021,6 +1021,7 @@ void *inotify_loop(void *arg)
 
 	sigemptyset(&sigmask);
 	sigaddset(&sigmask, SIGPIPE);
+	sigaddset(&sigmask, SIGTERM);
 	sigaddset(&sigmask, SIGINT);
 	pthread_sigmask(SIG_BLOCK, &sigmask, NULL);
 
@@ -1037,7 +1038,7 @@ void *inotify_loop(void *arg)
 	if (watch_ports_dir(inotify_fd, ctx) < 0)
 		goto out_cleanup;
 
-	for (;;) {
+	while (!stopped) {
 		int rlen, ret;
 		char *iev_buf;
 
