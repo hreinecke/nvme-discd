@@ -225,9 +225,10 @@ int discdb_add_host_subsys(struct nvmet_host *host, struct nvmet_subsys *subsys)
 }
 
 static char del_host_subsys_sql[] =
-	"DELETE FROM host_subsys "
-	"WHERE host_subsys.host_id in "
+	"DELETE FROM host_subsys AS hs "
+	"WHERE hs.host_id IN "
 	"(SELECT id FROM host WHERE nqn LIKE '%s') AND "
+	"hs.subsys_id IN "
 	"(SELECT id FROM subsys WHERE nqn LIKE '%s');";
 
 int discdb_del_host_subsys(struct nvmet_host *host, struct nvmet_subsys *subsys)
@@ -272,11 +273,11 @@ int discdb_add_subsys_port(struct nvmet_subsys *subsys, struct nvmet_port *port)
 }
 
 static char del_subsys_port_sql[] =
-	"DELETE FROM subsys_port "
-	"WHERE subsys_port.subsys_id in ("
-	"SELECT id FROM subsys WHERE nqn LIKE '%s') AND "
-	"subsys_port.port_id IN ("
-	"SELECT portid FROM port WHERE portid = %d);";
+	"DELETE FROM subsys_port AS sp "
+	"WHERE sp.subsys_id in "
+	"(SELECT id FROM subsys WHERE nqn LIKE '%s') AND "
+	"sp.port_id IN "
+	"(SELECT portid FROM port WHERE portid = %d);";
 
 int discdb_del_subsys_port(struct nvmet_subsys *subsys, struct nvmet_port *port)
 {
@@ -293,11 +294,13 @@ int discdb_del_subsys_port(struct nvmet_subsys *subsys, struct nvmet_port *port)
 }
 
 static char host_disc_entry_sql[] =
-	"SELECT host.nqn AS host_nqn, subsys.nqn AS subsys_nqn, subsys_port.port_id AS portid "
-	"FROM subsys_port "
-	"INNER JOIN subsys ON subsys.id = subsys_port.subsys_id "
-	"INNER JOIN host_subsys ON host_subsys.subsys_id = subsys_port.subsys_id "
-	"INNER JOIN host ON host_subsys.host_id = host.id AND host.nqn LIKE '%s';";
+	"SELECT host.nqn AS host_nqn, s.nqn AS subsys_nqn, p.portid, p.traddr "
+	"FROM subsys_port AS sp "
+	"INNER JOIN subsys AS s ON s.id = sp.subsys_id "
+	"INNER JOIN host_subsys AS hs ON hs.subsys_id = sp.subsys_id "
+	"INNER JOIN host AS h ON hs.host_id = h.id "
+	"INNER JOIN port AS p ON sp.port_id = p.portid "
+	"WHERE h.nqn LIKE '%s';";
 
 int discdb_host_disc_entries(struct nvmet_host *host)
 {
@@ -314,11 +317,13 @@ int discdb_host_disc_entries(struct nvmet_host *host)
 }
 
 static char subsys_disc_entry_sql[] =
-	"SELECT host.nqn AS host_nqn, subsys.nqn AS subsys_nqn, subsys_port.port_id AS portid "
-	"FROM subsys_port "
-	"INNER JOIN subsys ON subsys.id = subsys_port.subsys_id AND subsys.nqn LIKE '%s' "
-	"INNER JOIN host_subsys ON host_subsys.subsys_id = subsys_port.subsys_id "
-	"INNER JOIN host ON host_subsys.host_id = host.id;";
+	"SELECT h.nqn AS host_nqn, s.nqn AS subsys_nqn, p.portid, p.traddr "
+	"FROM subsys_port AS sp "
+	"INNER JOIN subsys AS s ON s.id = sp.subsys_id "
+	"INNER JOIN host_subsys AS hs ON hs.subsys_id = sp.subsys_id "
+	"INNER JOIN host AS h ON hs.host_id = h.id "
+	"INNER JOIN port AS p ON p.portid = sp.port_id "
+	"WHERE s.nqn LIKE '%s';";
 
 int discdb_subsys_disc_entries(struct nvmet_subsys *subsys)
 {
