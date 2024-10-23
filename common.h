@@ -130,7 +130,8 @@ struct interface {
 	struct list_head ep_list;
 	pthread_mutex_t ep_mutex;
 	struct nvmet_port *port;
-	int port_addr;
+	struct sockaddr_in6 addr;
+	int portid;
 	int listenfd;
 	unsigned char *tls_key;
 	size_t tls_key_len;
@@ -153,7 +154,6 @@ struct etcd_cdc_ctx {
 extern int tcp_debug;
 extern char *discovery_nqn;
 extern struct list_head subsys_linked_list;
-extern struct list_head iface_linked_list;
 
 static inline void gen_disc_aen(struct etcd_cdc_ctx *ctx)
 {
@@ -213,7 +213,9 @@ int endpoint_update_qdepth(struct endpoint *ep, int qsize);
 
 u8 *nvmet_etcd_disc_log(struct etcd_cdc_ctx *ctx, char *hostnqn, size_t *len);
 
-int interface_from_port(struct etcd_cdc_ctx *ctx,
-			struct nvmet_port *port);
+int interface_create(struct etcd_cdc_ctx *ctx,
+		     struct nvmet_port *port);
+int interface_delete(struct etcd_cdc_ctx *ctx,
+		     struct nvmet_port *port);
 
 #endif

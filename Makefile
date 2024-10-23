@@ -24,3 +24,4 @@ clean:
 daemon.c: common.h list.h discdb.h
 inotify.c: list.h discdb.h
 discdb.c: common.h discdb.h
+interface: common.h discdb.h

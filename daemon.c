@@ -101,6 +101,7 @@ int main (int argc, char *argv[])
 	ctx->ttl = 10;
 	ctx->genctr = 1;
 	ctx->dbfile = default_dbfile;
+	ctx->port = 8009;
 
 	parse_opts(ctx, argc, argv);
 
