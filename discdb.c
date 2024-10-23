@@ -307,6 +307,15 @@ int discdb_del_subsys_port(struct nvmet_subsys *subsys, struct nvmet_port *port)
 		return ret;
 	ret = sql_exec_simple(sql);
 	free(sql);
+
+	ret = asprintf(&sql, update_genctr_host_subsys_sql,
+		       subsys->subsysnqn);
+	if (ret < 0)
+		return ret;
+
+	ret = sql_exec_simple(sql);
+	free(sql);
+
 	return ret;
 }
 
