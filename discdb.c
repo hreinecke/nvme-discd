@@ -194,6 +194,12 @@ static char add_host_subsys_sql[] =
 	"SELECT host.id, subsys.id FROM host, subsys "
 	"WHERE host.nqn LIKE '%s' AND subsys.nqn LIKE '%s';";
 
+static char select_host_subsys_sql[] =
+	"SELECT host.nqn AS host_nqn, subsys.nqn AS subsys_nqn "
+	"FROM host_subsys AS hs "
+	"INNER JOIN subsys AS s ON s.id = hs.subsys_id "
+	"INNER JOIN host AS h ON h.id = hs.host_id;";
+
 int discdb_add_host_subsys(struct nvmet_host *host, struct nvmet_subsys *subsys)
 {
 	char *sql;
@@ -206,11 +212,15 @@ int discdb_add_host_subsys(struct nvmet_host *host, struct nvmet_subsys *subsys)
 	ret = sql_exec_simple(sql);
 	free(sql);
 	printf("Contents of 'host_subsys':\n");
-	ret = sql_exec_simple("SELECT host.nqn AS host_nqn, subsys.nqn AS subsys_nqn FROM host_subsys INNER JOIN subsys ON subsys.id = host_subsys.subsys_id INNER JOIN host ON host.id = host_subsys.host_id;");
+	ret = sql_exec_simple(select_host_subsys_sql);
 	if (ret)
 		return ret;
-	ret = sql_exec_simple("UPDATE host SET genctr = genctr + 1 "
-			      "WHERE nqn LIKE '%s';", host->hostnqn);
+	ret = asprintf(&sql, "UPDATE host SET genctr = genctr + 1 "
+		       "WHERE nqn LIKE '%s';", host->hostnqn);
+	if (ret < 0)
+		return ret;
+	ret = sql_exec_simple(sql);
+	free(sql);
 	return ret;
 }
 
@@ -285,10 +295,6 @@ int discdb_add_subsys_port(struct nvmet_subsys *subsys, struct nvmet_port *port)
 	free(sql);
 	printf("Contents of 'subsys_port':\n");
 	ret = sql_exec_simple(select_subsys_port_sql);
-	if (ret)
-		return ret;
-	ret = sql_exec_simple("UPDATE host SET genctr = genctr + 1 "
-			      "WHERE nqn LIKE '%s';", host->hostnqn);
 	return ret;
 }
 
