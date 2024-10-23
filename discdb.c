@@ -311,7 +311,8 @@ int discdb_del_subsys_port(struct nvmet_subsys *subsys, struct nvmet_port *port)
 }
 
 static char host_disc_entry_sql[] =
-	"SELECT h.nqn AS host_nqn, h.genctr, s.nqn AS subsys_nqn, p.portid, p.traddr "
+	"SELECT h.nqn AS host_nqn, h.genctr, s.nqn AS subsys_nqn, "
+	"p.portid, p.trtype, p.traddr, p.trsvcid, p.treq, p.tsas "
 	"FROM subsys_port AS sp "
 	"INNER JOIN subsys AS s ON s.id = sp.subsys_id "
 	"INNER JOIN host_subsys AS hs ON hs.subsys_id = sp.subsys_id "
@@ -334,7 +335,8 @@ int discdb_host_disc_entries(struct nvmet_host *host)
 }
 
 static char subsys_disc_entry_sql[] =
-	"SELECT h.nqn AS host_nqn, h.genctr, s.nqn AS subsys_nqn, p.portid, p.traddr "
+	"SELECT h.nqn AS host_nqn, h.genctr, s.nqn AS subsys_nqn, "
+	"p.portid, p.trtype, p.traddr, p.trsvcid, p.treq, p.tsas "
 	"FROM subsys_port AS sp "
 	"INNER JOIN subsys AS s ON s.id = sp.subsys_id "
 	"INNER JOIN host_subsys AS hs ON hs.subsys_id = sp.subsys_id "
