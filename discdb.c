@@ -256,6 +256,14 @@ static char select_subsys_port_sql[] =
 	"INNER JOIN subsys AS s ON s.id = sp.subsys_id "
 	"INNER JOIN port AS p ON p.portid = sp.port_id;";
 
+static char update_genctr_host_subsys_sql[] =
+	"UPDATE host SET genctr = genctr + 1 "
+	"FROM "
+	"(SELECT s.nqn AS subsys_nqn, hs.host_id AS host_id "
+	"FROM host_subsys AS hs "
+	"INNER JOIN subsys AS s ON s.id = hs.subsys_id) AS hs "
+	"WHERE hs.host_id = host.id AND hs.subsys_nqn LIKE '%s';";
+
 int discdb_add_subsys_port(struct nvmet_subsys *subsys, struct nvmet_port *port)
 {
 	char *sql;
@@ -269,6 +277,15 @@ int discdb_add_subsys_port(struct nvmet_subsys *subsys, struct nvmet_port *port)
 	free(sql);
 	printf("Contents of 'subsys_port':\n");
 	ret = sql_exec_simple(select_subsys_port_sql);
+
+	ret = asprintf(&sql, update_genctr_host_subsys_sql,
+		       subsys->subsysnqn);
+	if (ret < 0)
+		return ret;
+
+	ret = sql_exec_simple(sql);
+	free(sql);
+
 	return ret;
 }
 
@@ -294,7 +311,7 @@ int discdb_del_subsys_port(struct nvmet_subsys *subsys, struct nvmet_port *port)
 }
 
 static char host_disc_entry_sql[] =
-	"SELECT host.nqn AS host_nqn, s.nqn AS subsys_nqn, p.portid, p.traddr "
+	"SELECT h.nqn AS host_nqn, h.genctr, s.nqn AS subsys_nqn, p.portid, p.traddr "
 	"FROM subsys_port AS sp "
 	"INNER JOIN subsys AS s ON s.id = sp.subsys_id "
 	"INNER JOIN host_subsys AS hs ON hs.subsys_id = sp.subsys_id "
@@ -317,7 +334,7 @@ int discdb_host_disc_entries(struct nvmet_host *host)
 }
 
 static char subsys_disc_entry_sql[] =
-	"SELECT h.nqn AS host_nqn, s.nqn AS subsys_nqn, p.portid, p.traddr "
+	"SELECT h.nqn AS host_nqn, h.genctr, s.nqn AS subsys_nqn, p.portid, p.traddr "
 	"FROM subsys_port AS sp "
 	"INNER JOIN subsys AS s ON s.id = sp.subsys_id "
 	"INNER JOIN host_subsys AS hs ON hs.subsys_id = sp.subsys_id "
