@@ -45,6 +45,7 @@ static char *default_dbfile = "nvme_discdb.sqlite";
 void *inotify_loop(void *);
 
 int stopped = 0;
+int tcp_debug = 0;
 
 int parse_opts(struct etcd_cdc_ctx *ctx, int argc, char *argv[])
 {
@@ -53,12 +54,13 @@ int parse_opts(struct etcd_cdc_ctx *ctx, int argc, char *argv[])
 		{"port", required_argument, 0, 'p'},
 		{"host", required_argument, 0, 'h'},
 		{"ssl", no_argument, 0, 's'},
+		{"nqn", required_argument, 0, 'n'},
 		{"verbose", no_argument, 0, 'v'},
 	};
 	char c;
 	int getopt_ind;
 
-	while ((c = getopt_long(argc, argv, "c:e:p:h:st:v",
+	while ((c = getopt_long(argc, argv, "c:e:n:p:h:st:v",
 				getopt_arg, &getopt_ind)) != -1) {
 		switch (c) {
 		case 'c':
@@ -69,6 +71,9 @@ int parse_opts(struct etcd_cdc_ctx *ctx, int argc, char *argv[])
 			break;
 		case 'h':
 			ctx->host = optarg;
+			break;
+		case 'n':
+			ctx->nqn = optarg;
 			break;
 		case 'p':
 			ctx->port = atoi(optarg);
@@ -104,6 +109,11 @@ int main (int argc, char *argv[])
 	ctx->port = 8009;
 
 	parse_opts(ctx, argc, argv);
+
+	if (ctx->debug > 2)
+		tcp_debug = 1;
+	if (!ctx->nqn)
+		ctx->nqn = NVME_DISC_SUBSYS_NAME;
 
 	if (discdb_open(ctx->dbfile)) {
 		ret = 1;

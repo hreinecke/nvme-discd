@@ -81,8 +81,7 @@ enum { RECV_PDU, RECV_DATA, HANDLE_PDU };
 struct endpoint {
 	struct list_head node;
 	pthread_t pthread;
-	struct etcd_cdc_ctx *ctx;
-	struct host_iface *iface;
+	struct interface *iface;
 	struct ctrl_conn *ctrl;
 	struct ep_qe *qes;
 	union nvme_tcp_pdu *recv_pdu;
@@ -113,16 +112,6 @@ struct ctrl_conn {
 	u64 cc;
 };
 
-struct nsdev {
-	struct list_head node;
-	struct ns_ops *ops;
-	int nsid;
-	int fd;
-	size_t size;
-	unsigned int blksize;
-	uuid_t uuid;
-};
-
 struct interface {
 	struct list_head node;
 	pthread_t pthread;
@@ -141,7 +130,7 @@ struct etcd_cdc_ctx {
 	char *proto;
 	char *host;
 	int port;
-	char *hostnqn;
+	char *nqn;
 	char *configfs;
 	char *prefix;
 	char *dbfile;
@@ -208,7 +197,7 @@ void handle_disconnect(struct endpoint *ep, int shutdown);
 int handle_request(struct endpoint *ep, struct nvme_command *cmd);
 int handle_data(struct endpoint *ep, struct ep_qe *qe, int res);
 void *run_host_interface(void *arg);
-void terminate_interfaces(struct host_iface *iface, int signo);
+void terminate_interfaces(struct interface *iface, int signo);
 int endpoint_update_qdepth(struct endpoint *ep, int qsize);
 
 u8 *nvmet_etcd_disc_log(struct etcd_cdc_ctx *ctx, char *hostnqn, size_t *len);

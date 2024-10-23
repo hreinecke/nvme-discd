@@ -1,6 +1,6 @@
 
 PRG = nvme_discd
-PRG_OBJS = daemon.o inotify.o discdb.o interface.o
+PRG_OBJS = daemon.o inotify.o discdb.o interface.o tcp.o endpoint.o cmds.o
 CFLAGS = -Wall -g
 LIBS = -lsqlite3 -lpthread
 
@@ -24,4 +24,6 @@ clean:
 daemon.c: common.h list.h discdb.h
 inotify.c: list.h discdb.h
 discdb.c: common.h discdb.h
-interface: common.h discdb.h
+interface: common.h discdb.h tcp.h
+tcp.c: common.h tcp.h
+endpoint.c: common.h endpoint.h

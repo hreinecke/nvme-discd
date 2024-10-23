@@ -6,9 +6,9 @@
 #include <arpa/inet.h>
 #include <sys/epoll.h>
 
-#include "nvmet_common.h"
-#include "nvmet_endpoint.h"
-#include "nvmet_tcp.h"
+#include "common.h"
+#include "endpoint.h"
+#include "tcp.h"
 
 int endpoint_update_qdepth(struct endpoint *ep, int qsize)
 {
@@ -58,9 +58,7 @@ void *endpoint_thread(void *arg)
 	while (!stopped) {
 		ret = epoll_wait(epollfd, &ev, 1, ep->kato_interval);
 		if (ret == 0) {
-			/* epoll timeout, refresh lease */
-			ret = etcd_lease_keepalive(ep->ctx);
-			/* And terminate on KATO */
+			/* terminate on KATO */
 			if (!--ep->kato_countdown) {
 				ep_err(ep, "KATO timeout");
 				break;
@@ -145,7 +143,7 @@ retry:
 	return 0;
 }
 
-struct endpoint *enqueue_endpoint(int id, struct host_iface *iface)
+struct endpoint *enqueue_endpoint(int id, struct interface *iface)
 {
 	struct endpoint		*ep;
 	int			 ret;
@@ -160,8 +158,7 @@ struct endpoint *enqueue_endpoint(int id, struct host_iface *iface)
 	memset(ep, 0, sizeof(struct endpoint));
 
 	ep->iface = iface;
-	ep->ctx = etcd_dup(iface->ctx);
-	ep->kato_countdown = ep->ctx->ttl;
+	ep->kato_countdown = ep->iface->ctx->ttl;
 	ep->kato_interval = KATO_INTERVAL;
 	ep->maxh2cdata = 0x10000;
 	ep->qid = -1;
@@ -178,7 +175,6 @@ struct endpoint *enqueue_endpoint(int id, struct host_iface *iface)
 	pthread_mutex_unlock(&iface->ep_mutex);
 	return ep;
 out:
-	etcd_exit(ep->ctx);
 	free(ep);
 	close(id);
 	return NULL;
@@ -190,6 +186,5 @@ void dequeue_endpoint(struct endpoint *ep)
 		pthread_join(ep->pthread, NULL);
 	}
 	list_del(&ep->node);
-	etcd_exit(ep->ctx);
 	free(ep);
 }

@@ -10,8 +10,8 @@
 #include "types.h"
 #include "nvme.h"
 #include "nvme_tcp.h"
-#include "nvmet_common.h"
-#include "nvmet_tcp.h"
+#include "common.h"
+#include "tcp.h"
 
 #define NVME_OPCODE_MASK 0x3
 #define NVME_OPCODE_H2C  0x1
@@ -170,46 +170,27 @@ void tcp_release_tag(struct endpoint *ep, struct ep_qe *qe)
 	tcp_info(ep, "release tag %#x", qe->tag);
 }
 
-int tcp_init_listener(struct host_iface *iface)
+int tcp_init_listener(struct interface *iface)
 {
 	int listenfd;
 	int ret;
+	sa_family_t adrfam = iface->addr.sin6_family;
+	size_t addrlen =
+	    adrfam == AF_INET6 ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in);
 
-	listenfd = socket(iface->adrfam, SOCK_STREAM|SOCK_NONBLOCK, 0);
+	listenfd = socket(adrfam, SOCK_STREAM|SOCK_NONBLOCK, 0);
 	if (listenfd < 0) {
 		fprintf(stderr, "iface %d: socket error %d\n",
 			iface->portid, errno);
 		return -errno;
 	}
 
-	if (iface->adrfam == AF_INET) {
-		struct sockaddr_in addr;
-		memset(&addr, 0, sizeof(addr));
-		addr.sin_family = iface->adrfam;
-		addr.sin_port = htons(iface->port_num);
-		inet_pton(AF_INET, iface->address, &addr.sin_addr);
-
-		ret = bind(listenfd, (struct sockaddr *) &addr, sizeof(addr));
-		if (ret < 0) {
-			fprintf(stderr, "iface %d: socket bind error %d\n",
-				  iface->portid, errno);
-			ret = -errno;
-			goto err;
-		}
-	} else {
-		struct sockaddr_in6 addr6;
-		memset(&addr6, 0, sizeof(addr6));
-		addr6.sin6_family = iface->adrfam;
-		addr6.sin6_port = htons(iface->port_num);
-		inet_pton(AF_INET6, iface->address, &addr6.sin6_addr);
-
-		ret = bind(listenfd, (struct sockaddr *) &addr6, sizeof(addr6));
-		if (ret < 0) {
-			fprintf(stderr, "iface %d: socket bind error %d\n",
-				  iface->portid, errno);
-			ret = -errno;
-			goto err;
-		}
+	ret = bind(listenfd, &iface->addr, addrlen);
+	if (ret < 0) {
+	    fprintf(stderr, "iface %d: socket bind error %d\n",
+		    iface->portid, errno);
+	    ret = -errno;
+	    goto err;
 	}
 	ret = listen(listenfd, BACKLOG);
 	if (ret < 0) {
@@ -225,7 +206,7 @@ err:
 	return ret;
 }
 
-void tcp_destroy_listener(struct host_iface *iface)
+void tcp_destroy_listener(struct interface *iface)
 {
 	close(iface->listenfd);
 	iface->listenfd = -1;
@@ -320,7 +301,7 @@ out_free:
 	return ret;
 }
 
-int tcp_wait_for_connection(struct host_iface *iface, int timeout_ms)
+int tcp_wait_for_connection(struct interface *iface, int timeout_ms)
 {
 	int epollfd;
 	struct epoll_event ev[2];
@@ -373,15 +354,6 @@ int tcp_wait_for_connection(struct host_iface *iface, int timeout_ms)
 		}
 		if (ret > 0)
 			break;
-
-		/* epoll timeout, refresh lease */
-		ret = etcd_lease_keepalive(iface->ctx);
-		if (ret < 0) {
-			fprintf(stderr,
-				"iface %d: lease keepalive error %d\n",
-				iface->portid, ret);
-			break;
-		}
 	}
 	for (n = 0; n < ret; n++) {
 		if (ev[n].data.fd == sigfd) {

@@ -5,8 +5,8 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 
-#include "nvmet_common.h"
-#include "nvmet_tcp.h"
+#include "common.h"
+#include "tcp.h"
 
 #define NVME_VER ((1 << 16) | (4 << 8)) /* NVMe 1.4 */
 
@@ -172,7 +172,7 @@ static int handle_connect(struct endpoint *ep, struct ep_qe *qe,
 	ep->qid = qid;
 
 	if (strcmp(connect->subsysnqn, NVME_DISC_SUBSYS_NAME) &&
-	    (!discovery_nqn || strcmp(connect->subsysnqn, discovery_nqn))) {
+	    strcmp(connect->subsysnqn, ep->iface->ctx->nqn)) {
 		ep_err(ep, "subsystem '%s' not found",
 		       connect->subsysnqn);
 		return NVME_SC_CONNECT_INVALID_HOST;
@@ -258,13 +258,8 @@ static int handle_identify_ctrl(struct endpoint *ep, u8 *id_buf, u64 len)
 	id.kas = ep->kato_interval / 100; /* KAS is in units of 100 msecs */
 
 	id.cntrltype = ep->ctrl->ctrl_type;
-	if (!discovery_nqn) {
-		strcpy(id.subnqn, NVME_DISC_SUBSYS_NAME);
-		id.maxcmd = htole16(NVMF_DQ_DEPTH);
-	} else {
-		strcpy(id.subnqn, discovery_nqn);
-		id.maxcmd = htole16(ep->qsize);
-	}
+	strcpy(id.subnqn, ep->iface->ctx->nqn);
+	id.maxcmd = htole16(ep->qsize);
 
 	if (len > sizeof(id))
 		len = sizeof(id);
@@ -310,10 +305,11 @@ static int handle_identify(struct endpoint *ep, struct ep_qe *qe,
 static int format_disc_log(void *data, u64 data_offset,
 			   u64 data_len, struct endpoint *ep)
 {
-	u8 *log_buf;
+	u8 *log_buf = NULL;
 	size_t log_len = data_len;
 
-	log_buf = nvmet_etcd_disc_log(ep->ctx, ep->ctrl->nqn, &log_len);
+
+	// log_buf = nvmet_etcd_disc_log(ep->iface->ctx, ep->ctrl->nqn, &log_len);
 	if (!log_buf)
 		return 0;
 
