@@ -12,7 +12,7 @@
 #define NVME_VER ((1 << 16) | (4 << 8)) /* NVMe 1.4 */
 
 LIST_HEAD(ctrl_list);
-pthread_mutex_t ctrl_mutex;
+pthread_mutex_t ctrl_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static int nvmf_ctrl_id = 1;
 

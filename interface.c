@@ -9,6 +9,7 @@
 #include "endpoint.h"
 
 LIST_HEAD(interface_list);
+pthread_mutex_t interface_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static int portid;
 
@@ -82,16 +83,44 @@ int interface_create(struct etcd_cdc_ctx *ctx,
 {
 	struct interface *iface;
 	pthread_attr_t pthread_attr;
-	int ret;
+	int ret = 0;
 
 	if (strcmp(port->trtype, "tcp")) {
 		printf("skip interface with transport type '%s'\n",
 		       port->trtype);
 		return 0;
 	}
+	pthread_mutex_lock(&interface_lock);
+	list_for_each_entry(iface, &interface_list, node) {
+		printf("iface %d: checking %s %s %s\n",
+		       iface->portid, iface->port->trtype,
+		       iface->port->traddr, iface->port->trsvcid);
+		if (iface->port == port) {
+			fprintf(stderr, "iface %d: skip duplicate interface\n",
+				iface->portid);
+			ret = -EAGAIN;
+			break;
+		}
+		if (strcmp(iface->port->trtype, port->trtype))
+			continue;
+		if (strcmp(iface->port->traddr, port->traddr))
+			continue;
+		fprintf(stderr, "iface %d: duplicate interface requested\n",
+			iface->portid);
+		ret = -EBUSY;
+		break;
+	}
+	if (ret < 0) {
+		if (ret == -EAGAIN)
+			ret = 0;
+		goto out_unlock;
+	}
+
 	iface = malloc(sizeof(struct interface));
-	if (!iface)
-		return -1;
+	if (!iface) {
+		ret = -ENOMEM;
+		goto out_unlock;
+	}
 	memset(iface, 0, sizeof(struct interface));
 	INIT_LIST_HEAD(&iface->node);
 	iface->listenfd = -1;
@@ -103,7 +132,7 @@ int interface_create(struct etcd_cdc_ctx *ctx,
 	else
 		iface->adrfam = AF_INET;
 	pthread_mutex_init(&iface->ep_mutex, NULL);
-	printf("%s: %s addr %s:%d\n", __func__,
+	printf("iface %d: create %s addr %s:%d\n", iface->portid,
 	       port->adrfam, port->traddr, ctx->port);
 
 	list_add(&iface->node, &interface_list);
@@ -119,6 +148,8 @@ int interface_create(struct etcd_cdc_ctx *ctx,
 		free(iface);
 	}
 	pthread_attr_destroy(&pthread_attr);
+out_unlock:
+	pthread_mutex_unlock(&interface_lock);
 	return ret;
 }
 
@@ -137,6 +168,7 @@ int interface_delete(struct etcd_cdc_ctx *ctx, struct nvmet_port *port)
 {
 	struct interface *iface = NULL, *tmp;
 
+	pthread_mutex_lock(&interface_lock);
 	list_for_each_entry(tmp, &interface_list, node) {
 		if (tmp->port == port) {
 			iface = tmp;
@@ -148,6 +180,7 @@ int interface_delete(struct etcd_cdc_ctx *ctx, struct nvmet_port *port)
 		       port->adrfam, port->traddr, ctx->port);
 		interface_free(iface);
 	}
+	pthread_mutex_unlock(&interface_lock);
 	return 0;
 }
 
@@ -156,6 +189,7 @@ void terminate_interfaces(struct interface *iface, int signo)
 	struct interface *_iface;
 
 	stopped = true;
+	pthread_mutex_lock(&interface_lock);
 	list_for_each_entry(_iface, &interface_list, node) {
 		if (_iface != iface)
 			continue;
@@ -163,4 +197,5 @@ void terminate_interfaces(struct interface *iface, int signo)
 			_iface->portid);
 		pthread_kill(iface->pthread, signo);
 	}
+	pthread_mutex_unlock(&interface_lock);
 }
