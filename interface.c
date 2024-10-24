@@ -123,6 +123,8 @@ int interface_create(struct etcd_cdc_ctx *ctx,
 	}
 	memset(iface, 0, sizeof(struct interface));
 	INIT_LIST_HEAD(&iface->node);
+	INIT_LIST_HEAD(&iface->ep_list);
+	pthread_mutex_init(&iface->ep_mutex, NULL);
 	iface->listenfd = -1;
 	iface->ctx = ctx;
 	iface->port = port;

@@ -840,7 +840,6 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 				free(port_subsys);
 				discdb_del_subsys_port(&subsys->subsys,
 						       &port->port);
-				discdb_subsys_disc_entries(&subsys->subsys);
 			}
 			break;
 		case TYPE_SUBSYS_HOSTS_DIR:
