@@ -311,6 +311,7 @@ static int format_disc_log(void *data, u64 data_offset,
 	u8 *log_ptr;
 	struct nvmf_disc_rsp_page_hdr *log_hdr = data;
 
+	memset(data, 0, data_len);
 	log_ptr = data + log_offset;
 	log_len = discdb_host_disc_entries(ep->ctrl->nqn, log_ptr,
 					   data_len - log_offset,
@@ -324,7 +325,10 @@ static int format_disc_log(void *data, u64 data_offset,
 		ctrl_err(ep, "error retrieving genctr");
 		return -1;
 	}
-	num_recs = log_len / sizeof(struct nvmf_disc_rsp_page_entry);
+	if (log_len)
+		num_recs = log_len / sizeof(struct nvmf_disc_rsp_page_entry);
+	else
+		num_recs = 0;
 	log_hdr->recfmt = 1;
 	log_hdr->numrec = htole64(num_recs);
 	log_hdr->genctr = htole64(genctr);

@@ -1017,7 +1017,7 @@ void *inotify_loop(void *arg)
 	char event_buffer[INOTIFY_BUFFER_SIZE]
 		__attribute__ ((aligned(__alignof__(struct inotify_event))));
 
-	if (ctx->debug > 1)
+	if (ctx->debug > 2)
 		debug_inotify = 1;
 
 	sigemptyset(&sigmask);

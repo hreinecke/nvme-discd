@@ -23,11 +23,6 @@
 #include "nvme.h"
 #include "nvme_tcp.h"
 
-extern int			 debug;
-extern char			*hostnqn;
-extern struct list_head		devices;
-extern struct list_head		interfaces;
-
 #define NVMF_UUID_FMT		"nqn.2014-08.org.nvmexpress:uuid:%s"
 
 #define NVMF_DQ_DEPTH		2
@@ -141,13 +136,6 @@ struct etcd_cdc_ctx {
 };
 
 extern int tcp_debug;
-extern char *discovery_nqn;
-extern struct list_head subsys_linked_list;
-
-static inline void gen_disc_aen(struct etcd_cdc_ctx *ctx)
-{
-	ctx->genctr++;
-}
 
 static inline void set_response(struct nvme_completion *resp,
 				__u16 ccid, __u16 status, bool dnr)
@@ -187,11 +175,6 @@ static inline void set_response(struct nvme_completion *resp,
 			(e)->sockfd, ##x);			\
 		fflush(stderr);					\
 	} while (0)
-
-
-void nvmet_etcd_set_genctr(struct etcd_cdc_ctx *ctx, int genctr);
-int nvmet_etcd_get_genctr(struct etcd_cdc_ctx *ctx);
-void nvmet_etcd_discovery_nqn(struct etcd_cdc_ctx *ctx);
 
 void handle_disconnect(struct endpoint *ep, int shutdown);
 int handle_request(struct endpoint *ep, struct nvme_command *cmd);

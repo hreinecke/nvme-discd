@@ -447,7 +447,7 @@ next:
 }
 
 static char host_disc_entry_sql[] =
-	"SELECT h.nqn AS host_nqn, h.genctr, s.nqn AS subsys_nqn, "
+	"SELECT h.genctr, s.nqn AS subsys_nqn, "
 	"p.portid, p.trtype, p.traddr, p.trsvcid, p.treq, p.tsas "
 	"FROM subsys_port AS sp "
 	"INNER JOIN subsys AS s ON s.id = sp.subsys_id "
@@ -479,7 +479,7 @@ int discdb_host_disc_entries(const char *hostnqn, u8 *log,
 		sqlite3_free(errmsg);
 	}
 	free(sql);
-	return ret;
+	return parm.cur;
 }
 
 struct sql_int_value_parm {
@@ -499,8 +499,11 @@ static int sql_int_value_cb(void *argp, int argc, char **argv, char **colname)
 	for (i = 0; i < argc; i++) {
 		char *eptr = NULL;
 
-		if (strcmp(parm->col, colname[i]))
+		if (strcmp(parm->col, colname[i])) {
+			printf("%s: ignore col %s\n", __func__,
+			       colname[i]);
 			continue;
+		}
 		if (!argv[i]) {
 			parm->val = 0;
 			parm->done = 1;
@@ -508,6 +511,8 @@ static int sql_int_value_cb(void *argp, int argc, char **argv, char **colname)
 		}
 		parm->val = strtol(argv[i], &eptr, 10);
 		if (argv[i] == eptr) {
+			printf("%s: invalid value '%s'\n",
+			       __func__, argv[i]);
 			parm->done = -EINVAL;
 			break;
 		}
@@ -544,8 +549,7 @@ int discdb_host_genctr(const char *hostnqn)
 		errno = -parm.done;
 		ret = -1;
 	} else if (!parm.done) {
-		errno = -EAGAIN;
-		ret = -1;
+		return 0;
 	} else {
 		ret = parm.val;
 	}
