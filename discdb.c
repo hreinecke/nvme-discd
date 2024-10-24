@@ -354,6 +354,10 @@ static int sql_disc_entry_cb(void *argp, int argc, char **argv, char **colname)
 	   struct nvmf_disc_rsp_page_entry *entry =
 		   (struct nvmf_disc_rsp_page_entry *)(parm->buffer + parm->cur);
 
+	   if (!argp) {
+		   fprintf(stderr, "%s: Invalid parameter\n", __func__);
+		   return 0;
+	   }
 	   if (parm->cur < parm->offset)
 		   goto next;
 	   if (parm->cur > parm->max)

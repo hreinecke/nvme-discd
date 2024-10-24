@@ -12,7 +12,7 @@ LIST_HEAD(interface_list);
 
 static int portid;
 
-void *run_host_interface(void *arg)
+static void *interface_thread(void *arg)
 {
 	struct interface *iface = arg;
 	struct endpoint *ep, *_ep;
@@ -30,7 +30,7 @@ void *run_host_interface(void *arg)
 	ret = tcp_init_listener(iface);
 	if (ret < 0) {
 		fprintf(stderr,
-			"iface %d: failed to start listener, error %d\n",
+			"iface %d: listener start error %d\n",
 			iface->portid, ret);
 		pthread_exit(NULL);
 		return NULL;
@@ -45,7 +45,8 @@ void *run_host_interface(void *arg)
 		if (id < 0) {
 			if (id != -EAGAIN)
 				fprintf(stderr,
-					"iface %d: listener connection failed, error %d\n", iface->portid, id);
+					"iface %d: listener error %d\n",
+					iface->portid, id);
 			continue;
 		}
 		ep = enqueue_endpoint(id, iface);
@@ -59,7 +60,7 @@ void *run_host_interface(void *arg)
 		if (ret) {
 			ep->pthread = 0;
 			fprintf(stderr,
-				"iface %d: failed to start endpoint thread, error %d\n",
+				"iface %d: endpoint start error %d\n",
 				iface->portid, ret);
 		}
 		pthread_attr_destroy(&pthread_attr);
@@ -80,6 +81,8 @@ int interface_create(struct etcd_cdc_ctx *ctx,
 		     struct nvmet_port *port)
 {
 	struct interface *iface;
+	pthread_attr_t pthread_attr;
+	int ret;
 
 	iface = malloc(sizeof(struct interface));
 	if (!iface)
@@ -109,7 +112,30 @@ int interface_create(struct etcd_cdc_ctx *ctx,
 		inet_pton(AF_INET6, port->traddr, &addr6->sin6_addr);
 	}
 	list_add(&iface->node, &interface_list);
-	return 0;
+
+	pthread_attr_init(&pthread_attr);
+	ret = pthread_create(&iface->pthread, &pthread_attr,
+			     interface_thread, iface);
+	if (ret) {
+		iface->pthread = 0;
+		fprintf(stderr, "iface %d: failed to start iface, error %d\n",
+			iface->portid, ret);
+		list_del_init(&iface->node);
+		free(iface);
+	}
+	pthread_attr_destroy(&pthread_attr);
+	return ret;
+}
+
+static void interface_free(struct interface *iface)
+{
+	printf("%s: free interface %d\n", __func__, iface->portid);
+
+	if (iface->pthread)
+		pthread_join(iface->pthread, NULL);
+	pthread_mutex_destroy(&iface->ep_mutex);
+	list_del_init(&iface->node);
+	free(iface);
 }
 
 int interface_delete(struct etcd_cdc_ctx *ctx, struct nvmet_port *port)
@@ -123,10 +149,9 @@ int interface_delete(struct etcd_cdc_ctx *ctx, struct nvmet_port *port)
 		}
 	}
 	if (iface) {
-		list_del_init(&iface->node);
 		printf("%s: %s addr %s:%d\n", __func__,
 		       port->adrfam, port->traddr, ctx->port);
-		free(iface);
+		interface_free(iface);
 	}
 	return 0;
 }

@@ -145,8 +145,8 @@ retry:
 
 struct endpoint *enqueue_endpoint(int id, struct interface *iface)
 {
-	struct endpoint		*ep;
-	int			 ret;
+	struct endpoint	*ep;
+	int ret;
 
 	ep = malloc(sizeof(struct endpoint));
 	if (!ep) {
