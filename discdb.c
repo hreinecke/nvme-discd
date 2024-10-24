@@ -478,6 +478,76 @@ int discdb_host_disc_entries(const char *hostnqn, u8 *log,
 	return ret;
 }
 
+struct sql_int_value_parm {
+	const char *col;
+	int val;
+	int done;
+};
+
+static int sql_int_value_cb(void *argp, int argc, char **argv, char **colname)
+{
+	struct sql_int_value_parm *parm = argp;
+	int i;
+
+	if (parm->done != 0)
+		return 0;
+
+	for (i = 0; i < argc; i++) {
+		char *eptr = NULL;
+
+		if (strcmp(parm->col, colname[i]))
+			continue;
+		if (!argv[i]) {
+			parm->val = 0;
+			parm->done = 1;
+			break;
+		}
+		parm->val = strtol(argv[i], &eptr, 10);
+		if (argv[i] == eptr) {
+			parm->done = -EINVAL;
+			break;
+		}
+		parm->done = 1;
+	}
+	return 0;
+}
+
+static char host_genctr_sql[] =
+	"SELECT genctr FROM host WHERE nqn LIKE '%s';";
+
+int discdb_host_genctr(const char *hostnqn)
+{
+	char *sql, *errmsg;
+	struct sql_int_value_parm parm = {
+		.col = "genctr",
+		.val = 0,
+		.done = 0,
+	};
+	int ret;
+
+	ret = asprintf(&sql, host_genctr_sql, hostnqn);
+	if (ret < 0)
+		return ret;
+	ret = sqlite3_exec(nvme_db, sql, sql_int_value_cb,
+			   &parm, &errmsg);
+	if (ret != SQLITE_OK) {
+		fprintf(stderr, "SQL error executing %s\n", sql);
+		fprintf(stderr, "SQL error: %s\n", errmsg);
+		sqlite3_free(errmsg);
+	}
+	free(sql);
+	if (parm.done < 0) {
+		errno = -parm.done;
+		ret = -1;
+	} else if (!parm.done) {
+		errno = -EAGAIN;
+		ret = -1;
+	} else {
+		ret = parm.val;
+	}
+	return ret;
+}
+
 static char subsys_disc_entry_sql[] =
 	"SELECT h.nqn AS host_nqn, h.genctr, s.nqn AS subsys_nqn, "
 	"p.portid, p.trtype, p.traddr, p.trsvcid, p.treq, p.tsas "

@@ -306,25 +306,31 @@ static int handle_identify(struct endpoint *ep, struct ep_qe *qe,
 static int format_disc_log(void *data, u64 data_offset,
 			   u64 data_len, struct endpoint *ep)
 {
-	int log_len;
+	int log_len, genctr, num_recs;
+	int log_offset = sizeof(struct nvmf_disc_rsp_page_hdr);
+	u8 *log_ptr;
+	struct nvmf_disc_rsp_page_hdr *log_hdr = data;
 
-	log_len = discdb_host_disc_entries(ep->ctrl->nqn, data,
-					   data_len, data_offset);
+	log_ptr = data + log_offset;
+	log_len = discdb_host_disc_entries(ep->ctrl->nqn, log_ptr,
+					   data_len - log_offset,
+					   data_offset);
 	if (log_len < 0) {
 		ctrl_err(ep, "error formatting discovery log page");
 		return -1;
 	}
-	if (log_len > data_len)
-		log_len = data_len;
-	if (data_offset > log_len) {
-		ctrl_err(ep, "invalid discovery log page offset %llu len %d",
-			 data_offset, log_len);
-		data_len = 0;
-	} else {
-		ctrl_info(ep, "Returning discovery log page offset %llu len %d",
-			  data_offset, log_len);
+	genctr = discdb_host_genctr(ep->ctrl->nqn);
+	if (genctr < 0) {
+		ctrl_err(ep, "error retrieving genctr");
+		return -1;
 	}
-	return data_len;
+	num_recs = log_len / sizeof(struct nvmf_disc_rsp_page_entry);
+	log_hdr->recfmt = 1;
+	log_hdr->numrec = htole64(num_recs);
+	log_hdr->genctr = htole64(genctr);
+	ctrl_info(ep, "Returning discovery log page offset %llu len %d",
+		  data_offset, log_len);
+	return log_len + log_offset;
 }
 
 static int handle_get_log_page(struct endpoint *ep, struct ep_qe *qe,
