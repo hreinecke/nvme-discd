@@ -367,7 +367,13 @@ static int sql_disc_entry_cb(void *argp, int argc, char **argv, char **colname)
 				   arg_len = NVMF_NQN_FIELD_LEN;
 			   strncpy(entry->subnqn, argv[i], arg_len);
 		   } else if (!strcmp(colname[i], "portid")) {
-			   entry->portid = sqlite_int(argv[i]);
+			   char *eptr = NULL;
+			   int val;
+
+			   val = strtol(argv[i], &eptr, 10);
+			   if (argv[i] == eptr)
+				   continue;
+			   entry->portid = val;
 		   } else if (!strcmp(colname[i], "adrfam")) {
 			   if (!strcmp(argv[i], "ipv4")) {
 				   entry->adrfam = NVMF_ADDR_FAMILY_IP4;
