@@ -40,7 +40,8 @@ int discdb_add_subsys_port(struct nvmet_subsys *subsys,
 			   struct nvmet_port *port);
 int discdb_del_subsys_port(struct nvmet_subsys *subsys,
 			   struct nvmet_port *port);
-int discdb_host_disc_entries(struct nvmet_host *host);
 int discdb_subsys_disc_entries(struct nvmet_subsys *subsys);
+int discdb_host_disc_entries(const char *hostnqn, u8 *log,
+			     int log_len, int log_offset);
 
 #endif

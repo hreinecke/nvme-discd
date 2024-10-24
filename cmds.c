@@ -6,6 +6,7 @@
 #include <arpa/inet.h>
 
 #include "common.h"
+#include "discdb.h"
 #include "tcp.h"
 
 #define NVME_VER ((1 << 16) | (4 << 8)) /* NVMe 1.4 */
@@ -305,26 +306,24 @@ static int handle_identify(struct endpoint *ep, struct ep_qe *qe,
 static int format_disc_log(void *data, u64 data_offset,
 			   u64 data_len, struct endpoint *ep)
 {
-	u8 *log_buf = NULL;
-	size_t log_len = data_len;
+	int log_len;
 
-
-	// log_buf = nvmet_etcd_disc_log(ep->iface->ctx, ep->ctrl->nqn, &log_len);
-	if (!log_buf)
-		return 0;
-
+	log_len = discdb_host_disc_entries(ep->ctrl->nqn, data,
+					   data_len, data_offset);
+	if (log_len < 0) {
+		ctrl_err(ep, "error formatting discovery log page");
+		return -1;
+	}
 	if (log_len > data_len)
 		log_len = data_len;
 	if (data_offset > log_len) {
-		ctrl_err(ep, "invalid discovery log page offset %llu len %lu",
+		ctrl_err(ep, "invalid discovery log page offset %llu len %d",
 			 data_offset, log_len);
-		free(log_buf);
-		return 0;
+		data_len = 0;
+	} else {
+		ctrl_info(ep, "Returning discovery log page offset %llu len %d",
+			  data_offset, log_len);
 	}
-	memcpy(data, (u8 *)log_buf + data_offset, log_len);
-	ctrl_info(ep, "Returning discovery log page offset %llu len %lu",
-		  data_offset, log_len);
-	free(log_buf);
 	return data_len;
 }
 

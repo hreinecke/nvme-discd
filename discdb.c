@@ -340,23 +340,99 @@ int discdb_del_subsys_port(struct nvmet_subsys *subsys, struct nvmet_port *port)
 	return ret;
 }
 
-static int sql_disc_entry_cb(void *unused, int argc, char **argv, char **colname)
+struct sql_disc_entry_parm {
+	u8 *buffer;
+	int cur;
+	int offset;
+	int max;
+};
+
+static int sql_disc_entry_cb(void *argp, int argc, char **argv, char **colname)
 {
 	   int i;
+	   struct sql_disc_entry_parm *parm = argp;
+	   struct nvmf_disc_rsp_page_entry *entry =
+		   (struct nvmf_disc_rsp_page_entry *)(parm->buffer + parm->cur);
+
+	   if (parm->cur < parm->offset)
+		   goto next;
+	   if (parm->cur > parm->max)
+		   return 0;
 
 	   for (i = 0; i < argc; i++) {
-		   printf("%s ", colname[i]);
+		   size_t arg_len = argv[i] ? strlen(argv[i]) : 0;
+
+		   if (!strcmp(colname[i], "subsys_nqn")) {
+			   if (arg_len > NVMF_NQN_FIELD_LEN)
+				   arg_len = NVMF_NQN_FIELD_LEN;
+			   strncpy(entry->subnqn, argv[i], arg_len);
+		   } else if (!strcmp(colname[i], "portid")) {
+			   entry->portid = sqlite_int(argv[i]);
+		   } else if (!strcmp(colname[i], "adrfam")) {
+			   if (!strcmp(argv[i], "ipv4")) {
+				   entry->adrfam = NVMF_ADDR_FAMILY_IP4;
+			   } else if (!strcmp(argv[i], "ipv6")) {
+				   entry->adrfam = NVMF_ADDR_FAMILY_IP6;
+			   } else if (!strcmp(argv[i], "fc")) {
+				   entry->adrfam = NVMF_ADDR_FAMILY_FC;
+			   } else if (!strcmp(argv[i], "ib")) {
+				   entry->adrfam = NVMF_ADDR_FAMILY_IB;
+			   } else {
+				   entry->adrfam = NVMF_ADDR_FAMILY_LOOP;
+			   }
+		   } else if (!strcmp(colname[i], "trtype")) {
+			   if (!strcmp(argv[i], "tcp")) {
+				   entry->trtype = NVMF_TRTYPE_TCP;
+			   } else if (!strcmp(argv[i], "fc")) {
+				   entry->trtype = NVMF_TRTYPE_FC;
+			   } else if (!strcmp(argv[i], "rdma")) {
+				   entry->trtype = NVMF_TRTYPE_RDMA;
+			   } else {
+				   entry->trtype = NVMF_TRTYPE_LOOP;
+			   }
+		   } else if (!strcmp(colname[i], "traddr")) {
+			   if (!arg_len) {
+				   memset(entry->traddr, 0,
+					  NVMF_NQN_FIELD_LEN);
+				   continue;
+			   }
+			   if (arg_len > NVMF_NQN_FIELD_LEN)
+				   arg_len = NVMF_NQN_FIELD_LEN;
+			   memcpy(entry->traddr, argv[i], arg_len);
+		   } else if (!strcmp(colname[i], "trsvcid")) {
+			   if (!arg_len) {
+				   memset(entry->trsvcid, 0,
+					  NVMF_TRSVCID_SIZE);
+				   continue;
+			   }
+			   if (arg_len > NVMF_TRSVCID_SIZE)
+				   arg_len = NVMF_TRSVCID_SIZE;
+			   memcpy(entry->trsvcid, argv[i], arg_len);
+		   } else if (!strcmp(colname[i], "treq")) {
+			   if (arg_len &&
+			       !strcmp(argv[i], "required")) {
+				   entry->treq = 1;
+			   } else if (arg_len &&
+				      !strcmp(argv[i], "not required")) {
+				   entry->treq = 2;
+			   } else {
+				   entry->treq = 0;
+			   }
+		   } else if (!strcmp(colname[i], "tsas")) {
+			   if (arg_len && strcmp(argv[i], "tls13")) {
+				   entry->tsas.tcp.sectype =
+					   NVMF_TCP_SECTYPE_TLS13;
+			   } else {
+				   entry->tsas.tcp.sectype =
+					   NVMF_TCP_SECTYPE_NONE;
+			   }
+		   } else {
+			   fprintf(stderr, "skip discovery type '%s'\n",
+				   colname[i]);
+		   }
 	   }
-	   printf("\n");
-	   for (i = 0; i < argc; i++) {
-		   if (!strcmp(colname[i], "portid") ||
-		       !strcmp(colname[i], "genctr"))
-			   printf("%s ", argv[i]);
-		   else
-			   printf("'%s' ",
-				  argv[i] ? argv[i] : "NULL");
-	   }
-	   printf("\n");
+next:
+	   parm->cur += sizeof(struct nvmf_disc_rsp_page_entry);
 	   return 0;
 }
 
@@ -370,16 +446,23 @@ static char host_disc_entry_sql[] =
 	"INNER JOIN port AS p ON sp.port_id = p.portid "
 	"WHERE h.nqn LIKE '%s';";
 
-int discdb_host_disc_entries(struct nvmet_host *host)
+int discdb_host_disc_entries(const char *hostnqn, u8 *log,
+			     int log_len, int log_offset)
 {
+	struct sql_disc_entry_parm parm = {
+		.buffer = log,
+		.cur = 0,
+		.offset = log_offset,
+		.max = log_len,
+	};
 	char *sql, *errmsg;
 	int ret;
 
-	printf("Display disc entries for %s\n", host->hostnqn);
-	ret = asprintf(&sql, host_disc_entry_sql, host->hostnqn);
+	printf("Display disc entries for %s\n", hostnqn);
+	ret = asprintf(&sql, host_disc_entry_sql, hostnqn);
 	if (ret < 0)
 		return ret;
-	ret = sqlite3_exec(nvme_db, sql, sql_disc_entry_cb, NULL, &errmsg);
+	ret = sqlite3_exec(nvme_db, sql, sql_disc_entry_cb, &parm, &errmsg);
 	if (ret != SQLITE_OK) {
 		fprintf(stderr, "SQL error executing %s\n", sql);
 		fprintf(stderr, "SQL error: %s\n", errmsg);
