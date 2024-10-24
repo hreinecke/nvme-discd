@@ -552,6 +552,24 @@ int discdb_host_genctr(const char *hostnqn)
 	return ret;
 }
 
+static int sql_column_cb(void *unused, int argc, char **argv, char **colname)
+{
+	int i;
+ 
+	for (i = 0; i < argc; i++)
+		printf("%s ", colname[i]);
+	printf("\n");
+	for (i = 0; i < argc; i++) {
+		if (!strcmp(colname[i], "portid") ||
+		    !strcmp(colname[i], "genctr"))
+			printf("%s ", argv[i]);
+		else
+			printf("'%s' ",
+			       argv[i] ? argv[i] : "NULL");
+	}
+	return 0;
+}
+
 static char subsys_disc_entry_sql[] =
 	"SELECT h.nqn AS host_nqn, h.genctr, s.nqn AS subsys_nqn, "
 	"p.portid, p.trtype, p.traddr, p.trsvcid, p.treq, p.tsas "
@@ -571,7 +589,7 @@ int discdb_subsys_disc_entries(struct nvmet_subsys *subsys)
 	ret = asprintf(&sql, subsys_disc_entry_sql, subsys->subsysnqn);
 	if (ret < 0)
 		return ret;
-	ret = sqlite3_exec(nvme_db, sql, sql_disc_entry_cb, NULL, &errmsg);
+	ret = sqlite3_exec(nvme_db, sql, sql_column_cb, NULL, &errmsg);
 	if (ret != SQLITE_OK) {
 		fprintf(stderr, "SQL error executing %s\n", sql);
 		fprintf(stderr, "SQL error: %s\n", errmsg);
