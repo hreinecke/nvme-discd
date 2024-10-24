@@ -565,7 +565,6 @@ static void add_subsys_host(struct etcd_cdc_ctx *ctx,
 		printf("link host %s to subsys %s\n",
 		       host->host.hostnqn, subsys->subsys.subsysnqn);
 	discdb_add_host_subsys(&host->host, &subsys->subsys);
-	discdb_host_disc_entries(&host->host);
 }
 
 static void link_subsys_host(struct etcd_cdc_ctx *ctx,

@@ -119,7 +119,7 @@ struct interface {
 	struct list_head ep_list;
 	pthread_mutex_t ep_mutex;
 	struct nvmet_port *port;
-	struct sockaddr_in6 addr;
+	sa_family_t adrfam;
 	int portid;
 	int listenfd;
 	unsigned char *tls_key;

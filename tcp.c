@@ -6,11 +6,13 @@
 #include <sys/epoll.h>
 #include <sys/signalfd.h>
 #include <netinet/in.h>
+#include <netdb.h>
 
 #include "types.h"
 #include "nvme.h"
 #include "nvme_tcp.h"
 #include "common.h"
+#include "discdb.h"
 #include "tcp.h"
 
 #define NVME_OPCODE_MASK 0x3
@@ -174,40 +176,69 @@ int tcp_init_listener(struct interface *iface)
 {
 	int listenfd;
 	int ret;
-	sa_family_t adrfam = iface->addr.sin6_family;
-	size_t addrlen =
-	    adrfam == AF_INET6 ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in);
+	struct addrinfo *ai, hints;
+	char portstr[5];
 
-	listenfd = socket(adrfam, SOCK_STREAM|SOCK_NONBLOCK, 0);
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = iface->adrfam;
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_protocol = IPPROTO_TCP;
+	hints.ai_flags = AI_NUMERICSERV | AI_PASSIVE;
+	sprintf(portstr, "%d", iface->ctx->port);
+
+	ret = getaddrinfo(iface->port->traddr, portstr,
+			  &hints, &ai);
+	if (ret != 0) {
+		fprintf(stderr, "iface %d: getaddrinfo() failed: %s\n",
+			iface->portid, gai_strerror(ret));
+		return -EINVAL;
+	}
+	if (!ai) {
+		fprintf(stderr, "iface %d: no results from getaddrinfo()\n",
+			iface->portid);
+		return -EHOSTUNREACH;
+	}
+
+	listenfd = socket(ai->ai_family, ai->ai_socktype,
+			  ai->ai_protocol);
 	if (listenfd < 0) {
 		fprintf(stderr, "iface %d: socket error %d\n",
 			iface->portid, errno);
-		return -errno;
+		ret = -errno;
+		goto err_free;
 	}
 
-	ret = bind(listenfd, &iface->addr, addrlen);
+	ret = bind(listenfd, ai->ai_addr, ai->ai_addrlen);
 	if (ret < 0) {
-	    fprintf(stderr, "iface %d: socket bind error %d\n",
-		    iface->portid, errno);
-	    ret = -errno;
-	    goto err;
+		fprintf(stderr, "iface %d: socket %s:%s bind error %d\n",
+			iface->portid, iface->port->traddr, portstr, errno);
+		ret = -errno;
+		goto err_close;
 	}
+	if (ai->ai_next)
+		fprintf(stderr, "iface %d: duplicate addresses\n",
+			iface->portid);
+
 	ret = listen(listenfd, BACKLOG);
 	if (ret < 0) {
 		fprintf(stderr, "iface %d: socket listen error %d\n",
 			iface->portid, errno);
 		ret = -errno;
-		goto err;
+		goto err_close;
 	}
 	iface->listenfd = listenfd;
 	return 0;
-err:
+err_close:
 	close(listenfd);
+err_free:
+	freeaddrinfo(ai);
 	return ret;
 }
 
 void tcp_destroy_listener(struct interface *iface)
 {
+	if (iface->listenfd < 0)
+		return;
 	close(iface->listenfd);
 	iface->listenfd = -1;
 }
