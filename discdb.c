@@ -343,25 +343,24 @@ int discdb_del_subsys_port(struct nvmet_subsys *subsys, struct nvmet_port *port)
 struct sql_disc_entry_parm {
 	u8 *buffer;
 	int cur;
-	int offset;
-	int max;
+	int len;
 };
 
 static int sql_disc_entry_cb(void *argp, int argc, char **argv, char **colname)
 {
 	   int i;
 	   struct sql_disc_entry_parm *parm = argp;
-	   struct nvmf_disc_rsp_page_entry *entry =
-		   (struct nvmf_disc_rsp_page_entry *)(parm->buffer + parm->cur);
+	   struct nvmf_disc_rsp_page_entry *entry;
 
 	   if (!argp) {
 		   fprintf(stderr, "%s: Invalid parameter\n", __func__);
 		   return 0;
 	   }
-	   if (parm->cur < parm->offset)
+	   if (!parm->buffer)
 		   goto next;
-	   if (parm->cur > parm->max)
-		   return 0;
+	   entry = (struct nvmf_disc_rsp_page_entry *)(parm->buffer + parm->cur);
+	   if (parm->cur >= parm->len)
+		   goto next;
 
 	   for (i = 0; i < argc; i++) {
 		   size_t arg_len = argv[i] ? strlen(argv[i]) : 0;
@@ -456,14 +455,12 @@ static char host_disc_entry_sql[] =
 	"INNER JOIN port AS p ON sp.port_id = p.portid "
 	"WHERE h.nqn LIKE '%s';";
 
-int discdb_host_disc_entries(const char *hostnqn, u8 *log,
-			     int log_len, int log_offset)
+int discdb_host_disc_entries(const char *hostnqn, u8 *log, int log_len)
 {
 	struct sql_disc_entry_parm parm = {
 		.buffer = log,
 		.cur = 0,
-		.offset = log_offset,
-		.max = log_len,
+		.len = log_len,
 	};
 	char *sql, *errmsg;
 	int ret;

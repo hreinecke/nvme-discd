@@ -321,37 +321,58 @@ static int handle_identify(struct endpoint *ep, struct ep_qe *qe,
 static int format_disc_log(void *data, u64 data_offset,
 			   u64 data_len, struct endpoint *ep)
 {
-	int log_len = 0, genctr, num_recs;
-	int log_offset = sizeof(struct nvmf_disc_rsp_page_hdr);
-	u8 *log_ptr;
-	struct nvmf_disc_rsp_page_hdr *log_hdr = data;
+	int len, log_len, genctr, num_recs = 0;
+	u8 *log_buf;
+	struct nvmf_disc_rsp_page_hdr *log_hdr;
+	struct nvmf_disc_rsp_page_entry *log_ptr;
 
-	memset(data, 0, data_len);
-#if 0
-	log_ptr = data + log_offset;
-	log_len = discdb_host_disc_entries(ep->ctrl->nqn, log_ptr,
-					   data_len - log_offset,
-					   data_offset);
-	if (log_len < 0) {
+	len = discdb_host_disc_entries(ep->ctrl->nqn, NULL, 0);
+	if (len < 0) {
 		ctrl_err(ep, "error formatting discovery log page");
 		return -1;
 	}
-#endif
+	num_recs = len / sizeof(struct nvmf_disc_rsp_page_entry);
+	log_len = len + sizeof(struct nvmf_disc_rsp_page_hdr);
+	log_buf = malloc(log_len);
+	if (!log_buf) {
+		ctrl_err(ep, "error allocating discovery log");
+		errno = ENOMEM;
+		return -1;
+	}
+	log_hdr = (struct nvmf_disc_rsp_page_hdr *)log_buf;
+	log_ptr = log_hdr->entries;
+
+	if (num_recs) {
+		len = discdb_host_disc_entries(ep->ctrl->nqn,
+					       (u8 *)log_ptr, len);
+		if (len < 0) {
+			ctrl_err(ep, "error fetching discovery log entries");
+			num_recs = 0;
+		}
+	}
+
 	genctr = discdb_host_genctr(ep->ctrl->nqn);
 	if (genctr < 0) {
 		ctrl_err(ep, "error retrieving genctr");
-		return -1;
+		genctr = 0;
 	}
-	if (log_len)
-		num_recs = log_len / sizeof(struct nvmf_disc_rsp_page_entry);
-	else
-		num_recs = 0;
 	log_hdr->recfmt = 1;
 	log_hdr->numrec = htole64(num_recs);
 	log_hdr->genctr = htole64(genctr);
-	ctrl_info(ep, "Returning discovery log page offset %llu len %d",
-		  data_offset, log_len);
-	return log_len + log_offset;
+	if (log_len < data_offset) {
+		ctrl_err(ep, "offset %llu beyond log page size %d",
+			 data_offset, log_len);
+		log_len = 0;
+	} else {
+		log_len -= data_offset;
+		if (log_len > data_len)
+			log_len = data_len;
+		memcpy(data, log_buf + data_offset, log_len);
+	}
+	ctrl_info(ep, "discovery log page entries %d offset %llu len %d",
+		  num_recs, data_offset, log_len);
+	free(log_buf);
+	return log_len;
 }
 
 static int handle_get_log_page(struct endpoint *ep, struct ep_qe *qe,
