@@ -144,7 +144,7 @@ static inline void set_response(struct nvme_completion *resp,
 	if (!status)
 		dnr = false;
 	resp->command_id = ccid;
-	resp->status = ((dnr ? NVME_SC_DNR : 0) | status) << 1;
+	resp->status = ((dnr ? NVME_STATUS_DNR : 0) | status) << 1;
 }
 
 void handle_disconnect(struct endpoint *ep, int shutdown);

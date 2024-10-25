@@ -405,6 +405,8 @@ static int sql_disc_entry_cb(void *argp, int argc, char **argv, char **colname)
 	   if (parm->cur >= parm->len)
 		   goto next;
 
+	   entry->cntlid = (u16)NVME_CNTLID_DYNAMIC;
+
 	   for (i = 0; i < argc; i++) {
 		   size_t arg_len = argv[i] ? strlen(argv[i]) : 0;
 
