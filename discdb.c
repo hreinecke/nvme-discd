@@ -465,10 +465,10 @@ int discdb_host_disc_entries(const char *hostnqn, u8 *log, int log_len)
 	char *sql, *errmsg;
 	int ret;
 
-	printf("Display disc entries for %s\n", hostnqn);
 	ret = asprintf(&sql, host_disc_entry_sql, hostnqn);
 	if (ret < 0)
 		return ret;
+	printf("Display disc entries for %s\n", hostnqn);
 	ret = sqlite3_exec(nvme_db, sql, sql_disc_entry_cb, &parm, &errmsg);
 	if (ret != SQLITE_OK) {
 		fprintf(stderr, "SQL error executing %s\n", sql);
@@ -476,6 +476,19 @@ int discdb_host_disc_entries(const char *hostnqn, u8 *log, int log_len)
 		sqlite3_free(errmsg);
 	}
 	free(sql);
+	printf("disc entries: cur %d len %d\n", parm.cur, parm.len);
+	ret = asprintf(&sql, host_disc_entry_sql, NVME_DISC_SUBSYS_NAME);
+	if (ret < 0)
+		return parm.cur;
+	printf("Display disc entries for %s\n", NVME_DISC_SUBSYS_NAME);
+	ret = sqlite3_exec(nvme_db, sql, sql_disc_entry_cb, &parm, &errmsg);
+	if (ret != SQLITE_OK) {
+		fprintf(stderr, "SQL error executing %s\n", sql);
+		fprintf(stderr, "SQL error: %s\n", errmsg);
+		sqlite3_free(errmsg);
+	}
+	free(sql);
+	printf("disc entries: cur %d len %d\n", parm.cur, parm.len);
 	return parm.cur;
 }
 

@@ -105,6 +105,25 @@ struct inotify_subsys_host {
 	struct inotify_host *host;
 };
 
+static void unlink_subsys_hosts(struct etcd_cdc_ctx *ctx,
+				struct inotify_subsys *subsys)
+{
+	struct inotify_subsys_host *subsys_host, *tmp_s;
+
+	list_for_each_entry_safe(subsys_host, tmp_s,
+				 &subsys->hosts, entry) {
+		struct inotify_host *host = subsys_host->host;
+
+		if (debug_inotify)
+			printf("unlink host %s from subsys %s\n",
+			       host->host.hostnqn,
+			       subsys->subsys.subsysnqn);
+		list_del_init(&subsys_host->entry);
+		free(subsys_host);
+		discdb_del_host_subsys(&host->host, &subsys->subsys);
+	}
+}
+
 static struct dir_watcher *find_watcher(enum watcher_type type, char *path)
 {
 	struct dir_watcher *watcher;
@@ -228,7 +247,6 @@ static int remove_watch(int fd, struct etcd_cdc_ctx *ctx,
 	struct inotify_port *port;
 	struct inotify_subsys *subsys;
 	struct inotify_port_subsys *port_subsys, *tmp_p;
-	struct inotify_subsys_host *subsys_host, *tmp_s;
 
 	ret = inotify_rm_watch(fd, watcher->wd);
 	if (ret < 0)
@@ -290,17 +308,7 @@ static int remove_watch(int fd, struct etcd_cdc_ctx *ctx,
 			free(watcher);
 			break;
 		}
-		list_for_each_entry_safe(subsys_host, tmp_s,
-					 &subsys->hosts, entry) {
-			host = subsys_host->host;
-			if (debug_inotify)
-				printf("unlink host %s from subsys %s\n",
-				       host->host.hostnqn,
-				       subsys->subsys.subsysnqn);
-			list_del_init(&subsys_host->entry);
-			free(subsys_host);
-			discdb_del_host_subsys(&host->host, &subsys->subsys);
-		}
+		unlink_subsys_hosts(ctx, subsys);
 		free(watcher);
 		break;
 	default:
@@ -630,6 +638,12 @@ static void watch_subsys(int fd, struct etcd_cdc_ctx *ctx,
 		      &subsys->subsys.allow_any);
 	discdb_add_subsys(&subsys->subsys);
 
+	/*
+	 * Use the discovery NQN as host nqn when 'allow_any' is set.
+	 */
+	if (subsys->subsys.allow_any)
+		add_subsys_host(ctx, subsys, NVME_DISC_SUBSYS_NAME);
+
 	sprintf(ah_dir, "%s/%s/allowed_hosts",
 		subsys_dir, subnqn);
 	watch_directory(fd, ah_dir, TYPE_SUBSYS_HOSTS_DIR,
@@ -905,7 +919,11 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 				attr_read_int(subsys->watcher.dirname,
 					      "attr_allow_any_host",
 					      &subsys->subsys.allow_any);
-				/* discdb_modify_subsys(&subsys->subsys) */
+				unlink_subsys_hosts(ctx, subsys);
+				if (subsys->subsys.allow_any) {
+					add_subsys_host(ctx, subsys,
+							NVME_DISC_SUBSYS_NAME);
+				}
 			} else {
 				if (debug_inotify)
 					printf("unknown attribute %s/%s\n",
