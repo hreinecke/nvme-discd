@@ -132,7 +132,7 @@ struct interface {
 	struct etcd_cdc_ctx *ctx;
 	struct list_head ep_list;
 	pthread_mutex_t ep_mutex;
-	struct nvmet_port *port;
+	struct nvmet_port port;
 	sa_family_t adrfam;
 	int portid;
 	int listenfd;
@@ -171,9 +171,9 @@ int handle_request(struct endpoint *ep, struct nvme_command *cmd);
 int handle_data(struct endpoint *ep, struct ep_qe *qe, int res);
 int endpoint_update_qdepth(struct endpoint *ep, int qsize);
 
-int interface_create(struct etcd_cdc_ctx *ctx,
-		     struct nvmet_port *port);
-void interface_delete(struct etcd_cdc_ctx *ctx,
-		      struct nvmet_port *port);
+int interface_create(struct etcd_cdc_ctx *ctx, char *trtype,
+		     char *traddr, char *adrfam);
+void interface_delete(struct etcd_cdc_ctx *ctx, char *trtype,
+		      char *traddr, char *adrfam);
 
 #endif

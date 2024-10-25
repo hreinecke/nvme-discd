@@ -6,11 +6,10 @@
 #include "common.h"
 #include "tcp.h"
 #include "endpoint.h"
+#include "discdb.h"
 
 LIST_HEAD(interface_list);
 pthread_mutex_t interface_lock = PTHREAD_MUTEX_INITIALIZER;
-
-static int portid;
 
 static void *interface_thread(void *arg)
 {
@@ -82,43 +81,31 @@ static void *interface_thread(void *arg)
 	return NULL;
 }
 
-int interface_create(struct etcd_cdc_ctx *ctx,
-		     struct nvmet_port *port)
+int interface_create(struct etcd_cdc_ctx *ctx, char *trtype,
+		     char *traddr, char *adrfam)
 {
 	struct interface *iface;
 	pthread_attr_t pthread_attr;
 	int ret = 0;
 
-	if (strcmp(port->trtype, "tcp")) {
+	if (strcmp(trtype, "tcp")) {
 		printf("skip interface with transport type '%s'\n",
-		       port->trtype);
+		       trtype);
 		return 0;
 	}
 	pthread_mutex_lock(&interface_lock);
 	list_for_each_entry(iface, &interface_list, node) {
-		printf("iface %d: checking %s %s %s\n",
-		       iface->portid, iface->port->trtype,
-		       iface->port->traddr, iface->port->trsvcid);
-		if (iface->port == port) {
-			fprintf(stderr, "iface %d: skip duplicate interface\n",
-				iface->portid);
-			ret = -EAGAIN;
-			break;
-		}
-		if (strcmp(iface->port->trtype, port->trtype))
+		if (strcmp(iface->port.traddr, traddr))
 			continue;
-		if (strcmp(iface->port->traddr, port->traddr))
+		if (strcmp(iface->port.adrfam, adrfam))
 			continue;
 		fprintf(stderr, "iface %d: duplicate interface requested\n",
 			iface->portid);
 		ret = -EBUSY;
 		break;
 	}
-	if (ret < 0) {
-		if (ret == -EAGAIN)
-			ret = 0;
+	if (ret < 0)
 		goto out_unlock;
-	}
 
 	iface = malloc(sizeof(struct interface));
 	if (!iface) {
@@ -131,16 +118,26 @@ int interface_create(struct etcd_cdc_ctx *ctx,
 	pthread_mutex_init(&iface->ep_mutex, NULL);
 	iface->listenfd = -1;
 	iface->ctx = ctx;
-	iface->port = port;
-	iface->portid = portid++;
-	if (!strcmp(port->adrfam, "ipv6"))
+	strcpy(iface->port.trtype, trtype);
+	strcpy(iface->port.traddr, traddr);
+	strcpy(iface->port.adrfam, adrfam);
+	sprintf(iface->port.trsvcid, "%d", ctx->port);
+	if (!strcmp(adrfam, "ipv6"))
 		iface->adrfam = AF_INET6;
 	else
 		iface->adrfam = AF_INET;
 	pthread_mutex_init(&iface->ep_mutex, NULL);
-	printf("iface %d: create %s addr %s:%d\n", iface->portid,
-	       port->adrfam, port->traddr, ctx->port);
-
+	ret = discdb_add_port(&iface->port);
+	if (ret < 0) {
+		fprintf(stderr, "failed to create interface for %s:%s:%s\n",
+			iface->port.trtype, iface->port.traddr,
+			iface->port.trsvcid);
+		free(iface);
+		goto out_unlock;
+	}
+	iface->portid = iface->port.port_id;
+	printf("iface %d: created %s addr %s:%s\n", iface->portid,
+	       iface->port.adrfam, iface->port.traddr, iface->port.trsvcid);
 	list_add(&iface->node, &interface_list);
 
 	pthread_attr_init(&pthread_attr);
@@ -151,6 +148,7 @@ int interface_create(struct etcd_cdc_ctx *ctx,
 		fprintf(stderr, "iface %d: failed to start iface, error %d\n",
 			iface->portid, ret);
 		list_del_init(&iface->node);
+		discdb_del_port(&iface->port);
 		free(iface);
 	}
 	pthread_attr_destroy(&pthread_attr);
@@ -167,16 +165,20 @@ static void interface_free(struct interface *iface)
 		pthread_join(iface->pthread, NULL);
 	pthread_mutex_destroy(&iface->ep_mutex);
 	list_del_init(&iface->node);
+	discdb_del_port(&iface->port);
 	free(iface);
 }
 
-void interface_delete(struct etcd_cdc_ctx *ctx, struct nvmet_port *port)
+void interface_delete(struct etcd_cdc_ctx *ctx, char *trtype,
+		      char *traddr, char *adrfam)
 {
 	struct interface *iface = NULL, *tmp;
 
 	pthread_mutex_lock(&interface_lock);
 	list_for_each_entry(tmp, &interface_list, node) {
-		if (tmp->port == port) {
+		if (!strcmp(tmp->port.trtype, trtype) &&
+		    !strcmp(tmp->port.traddr, traddr) &&
+		    !strcmp(tmp->port.adrfam, adrfam)) {
 			iface = tmp;
 			break;
 		}
@@ -191,7 +193,7 @@ void interface_delete(struct etcd_cdc_ctx *ctx, struct nvmet_port *port)
 		iface->portid);
 	if (iface->pthread)
 		pthread_kill(iface->pthread, SIGTERM);
-	printf("%s: %s addr %s:%d\n", __func__,
-	       port->adrfam, port->traddr, ctx->port);
+	printf("%s: %s addr %s:%s\n", __func__,
+	       iface->port.adrfam, iface->port.traddr, iface->port.trsvcid);
 	interface_free(iface);
 }

@@ -176,16 +176,14 @@ int tcp_init_listener(struct interface *iface)
 	int listenfd;
 	int ret;
 	struct addrinfo *ai, hints;
-	char portstr[5];
 
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = iface->adrfam;
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_protocol = IPPROTO_TCP;
 	hints.ai_flags = AI_NUMERICSERV | AI_PASSIVE;
-	sprintf(portstr, "%d", iface->ctx->port);
 
-	ret = getaddrinfo(iface->port->traddr, portstr,
+	ret = getaddrinfo(iface->port.traddr, iface->port.trsvcid,
 			  &hints, &ai);
 	if (ret != 0) {
 		fprintf(stderr, "iface %d: getaddrinfo() failed: %s\n",
@@ -210,7 +208,8 @@ int tcp_init_listener(struct interface *iface)
 	ret = bind(listenfd, ai->ai_addr, ai->ai_addrlen);
 	if (ret < 0) {
 		fprintf(stderr, "iface %d: socket %s:%s bind error %d\n",
-			iface->portid, iface->port->traddr, portstr, errno);
+			iface->portid, iface->port.traddr,
+			iface->port.trsvcid, errno);
 		ret = -errno;
 		goto err_close;
 	}
