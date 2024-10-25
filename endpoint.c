@@ -10,6 +10,21 @@
 #include "endpoint.h"
 #include "tcp.h"
 
+#define ep_info(e, f, x...)					\
+	if (cmd_debug) {					\
+		printf("ep %d: " f "\n",			\
+		       (e)->sockfd, ##x);			\
+		fflush(stdout);					\
+}
+
+#define ep_err(e, f, x...)					\
+	do {							\
+		fprintf(stderr, "ep %d: " f "\n",		\
+			(e)->sockfd, ##x);			\
+		fflush(stderr);					\
+	} while (0)
+
+
 int endpoint_update_qdepth(struct endpoint *ep, int qsize)
 {
 	struct ep_qe *qes;

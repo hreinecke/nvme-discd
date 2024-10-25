@@ -11,34 +11,30 @@
 
 #define ctrl_info(e, f, x...)					\
 	if (cmd_debug) {					\
-		printf("ctrl %d qid %d: " f "\n",		\
-		       (e)->ctrl ? (e)->ctrl->cntlid : -1,	\
-		       (e)->qid, ##x);				\
+		if ((e)->ctrl) {				\
+			printf("ctrl %d qid %d: " f "\n",	\
+			       (e)->ctrl->cntlid,		\
+			       (e)->qid, ##x);			\
+		} else {					\
+			printf("ep %d: " f "\n",		\
+			       (e)->sockfd, ##x);		\
+		}						\
 		fflush(stdout);					\
 	}
 
 #define ctrl_err(e, f, x...)					\
 	do {							\
-		fprintf(stderr, "ctrl %d qid %d: " f "\n",	\
-		       (e)->ctrl ? (e)->ctrl->cntlid : -1,	\
-		       (e)->qid, ##x);				\
+		if ((e)->ctrl) {				\
+			fprintf(stderr,				\
+				"ctrl %d qid %d: " f "\n",	\
+				(e)->ctrl->cntlid,		\
+				(e)->qid, ##x);			\
+		} else {					\
+			printf("ep %d: " f "\n",		\
+			       (e)->sockfd, ##x);		\
+		}						\
 		fflush(stderr);					\
 	} while (0)
-
-#define ep_info(e, f, x...)					\
-	if (cmd_debug) {					\
-		printf("ep %d: " f "\n",			\
-		       (e)->sockfd, ##x);			\
-		fflush(stdout);					\
-	}
-
-#define ep_err(e, f, x...)					\
-	do {							\
-		fprintf(stderr, "ep %d: " f "\n",		\
-			(e)->sockfd, ##x);			\
-		fflush(stderr);					\
-	} while (0)
-
 
 #define NVME_VER ((1 << 16) | (4 << 8)) /* NVMe 1.4 */
 
@@ -159,24 +155,25 @@ static int handle_connect(struct endpoint *ep, struct ep_qe *qe,
 	sqsize = le16toh(cmd->connect.sqsize);
 	kato = le32toh(cmd->connect.kato);
 
-	ep_info(ep, "nvme_fabrics_connect qid %u sqsize %u kato %u",
-		qid, sqsize, kato);
+	ctrl_info(ep, "nvme_fabrics_connect qid %u sqsize %u kato %u",
+		  qid, sqsize, kato);
 
 	ret = tcp_recv_data(ep, connect, qe->data_len);
 	if (ret) {
-		ep_err(ep, "tcp_recv_data failed with error %d", errno);
+		ctrl_err(ep, "tcp_recv_data failed with error %d",
+			 errno);
 		return ret;
 	}
 
 	cntlid = le16toh(connect->cntlid);
 
 	if (qid == 0 && cntlid != 0xFFFF) {
-		ep_err(ep, "bad controller id %x, expecting %x",
+		ctrl_err(ep, "bad controller id %x, expecting %x",
 		       cntlid, 0xffff);
 		return NVME_SC_CONNECT_INVALID_PARAM;
 	}
 	if (!sqsize) {
-		ep_err(ep, "cntlid %d qid %d invalid sqsize",
+		ctrl_err(ep, "cntlid %d qid %d invalid sqsize",
 		       cntlid, qid);
 		return NVME_SC_CONNECT_INVALID_PARAM;
 	}
@@ -187,7 +184,7 @@ static int handle_connect(struct endpoint *ep, struct ep_qe *qe,
 	if (qid == 0) {
 		ep->qsize = NVMF_SQ_DEPTH;
 	} else if (endpoint_update_qdepth(ep, sqsize) < 0) {
-		ep_err(ep, "qid %d failed to increase sqsize %d",
+		ctrl_err(ep, "qid %d failed to increase sqsize %d",
 		       qid, sqsize);
 		return NVME_SC_INTERNAL;
 	}
@@ -196,7 +193,7 @@ static int handle_connect(struct endpoint *ep, struct ep_qe *qe,
 
 	if (strcmp(connect->subsysnqn, NVME_DISC_SUBSYS_NAME) &&
 	    strcmp(connect->subsysnqn, ep->iface->ctx->nqn)) {
-		ep_err(ep, "subsystem '%s' not found",
+		ctrl_err(ep, "subsystem '%s' not found",
 		       connect->subsysnqn);
 		return NVME_SC_CONNECT_INVALID_HOST;
 	}
@@ -212,11 +209,11 @@ static int handle_connect(struct endpoint *ep, struct ep_qe *qe,
 		}
 	}
 	if (!ep->ctrl) {
-		ep_info(ep, "Allocating new controller '%s'",
-			connect->hostnqn);
+		ctrl_info(ep, "Allocating new controller '%s'",
+			  connect->hostnqn);
 		ctrl = malloc(sizeof(*ctrl));
 		if (!ctrl) {
-			ep_err(ep, "Out of memory allocating controller");
+			ctrl_err(ep, "Out of memory allocating controller");
 		} else {
 			memset(ctrl, 0, sizeof(*ctrl));
 			strncpy(ctrl->nqn, connect->hostnqn, MAX_NQN_SIZE);
@@ -230,8 +227,8 @@ static int handle_connect(struct endpoint *ep, struct ep_qe *qe,
 	}
 	pthread_mutex_unlock(&ctrl_mutex);
 	if (!ep->ctrl) {
-		ep_err(ep, "bad controller id %x for queue %d, expecting %x",
-		       cntlid, qid, ctrl->cntlid);
+		ctrl_err(ep, "bad controller id %x for queue %d, expecting %x",
+			 cntlid, qid, ctrl->cntlid);
 		ret = NVME_SC_CONNECT_INVALID_PARAM;
 	}
 	if (!ret) {

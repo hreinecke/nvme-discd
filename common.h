@@ -150,11 +150,7 @@ static inline void set_response(struct nvme_completion *resp,
 void handle_disconnect(struct endpoint *ep, int shutdown);
 int handle_request(struct endpoint *ep, struct nvme_command *cmd);
 int handle_data(struct endpoint *ep, struct ep_qe *qe, int res);
-void *run_host_interface(void *arg);
-void terminate_interfaces(struct interface *iface, int signo);
 int endpoint_update_qdepth(struct endpoint *ep, int qsize);
-
-u8 *nvmet_etcd_disc_log(struct etcd_cdc_ctx *ctx, char *hostnqn, size_t *len);
 
 int interface_create(struct etcd_cdc_ctx *ctx,
 		     struct nvmet_port *port);

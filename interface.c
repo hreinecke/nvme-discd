@@ -196,19 +196,3 @@ void interface_delete(struct etcd_cdc_ctx *ctx, struct nvmet_port *port)
 	       port->adrfam, port->traddr, ctx->port);
 	interface_free(iface);
 }
-
-void terminate_interfaces(struct interface *iface, int signo)
-{
-	struct interface *_iface;
-
-	stopped = true;
-	pthread_mutex_lock(&interface_lock);
-	list_for_each_entry(_iface, &interface_list, node) {
-		if (_iface != iface)
-			continue;
-		fprintf(stderr, "iface %d: terminating\n",
-			_iface->portid);
-		pthread_kill(iface->pthread, signo);
-	}
-	pthread_mutex_unlock(&interface_lock);
-}
