@@ -194,6 +194,14 @@ int discdb_add_port(struct nvmet_port *port)
 	return ret;
 }
 
+static char update_genctr_port_sql[] =
+	"UPDATE host SET genctr = genctr + 1 "
+	"FROM "
+	"(SELECT hs.host_id AS host_id, sp.portid AS portid "
+	"FROM host_subsys AS hs "
+	"INNER JOIN subsys_port AS sp ON hs.subsys_id = sp.subsys_id) "
+	"AS hg WHERE hg.host_id = host.id AND hg.portid = '%d';";
+
 int discdb_modify_port(struct nvmet_port *port, char *attr)
 {
 	char *value, *sql;
@@ -217,6 +225,11 @@ int discdb_modify_port(struct nvmet_port *port, char *attr)
 	ret = asprintf(&sql, "UPDATE port SET %s = '%s' "
 		       "WHERE portid = '%d';", attr, value,
 		       port->port_id);
+	if (ret < 0)
+		return ret;
+	ret = sql_exec_simple(sql);
+	free(sql);
+	ret = asprintf(&sql, update_genctr_port_sql, port->port_id);
 	if (ret < 0)
 		return ret;
 	ret = sql_exec_simple(sql);
