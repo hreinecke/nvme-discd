@@ -406,7 +406,6 @@ static int sql_disc_entry_cb(void *argp, int argc, char **argv, char **colname)
 		   goto next;
 
 	   entry->cntlid = (u16)NVME_CNTLID_DYNAMIC;
-	   entry->subtype = NVME_NQN_NVME;
 	   entry->asqsz = htole16(32);
 
 	   for (i = 0; i < argc; i++) {
@@ -424,6 +423,14 @@ static int sql_disc_entry_cb(void *argp, int argc, char **argv, char **colname)
 			   if (argv[i] == eptr)
 				   continue;
 			   entry->portid = val;
+		   } else if (!strcmp(colname[i], "subtype")) {
+			   char *eptr = NULL;
+			   int val;
+
+			   val = strtol(argv[i], &eptr, 10);
+			   if (argv[i] == eptr)
+				   continue;
+			   entry->subtype = val;
 		   } else if (!strcmp(colname[i], "adrfam")) {
 			   if (!strcmp(argv[i], "ipv4")) {
 				   entry->adrfam = NVMF_ADDR_FAMILY_IP4;
@@ -494,7 +501,7 @@ next:
 
 static char host_disc_entry_sql[] =
 	"SELECT h.genctr, s.nqn AS subsys_nqn, "
-	"p.portid, p.trtype, p.traddr, p.trsvcid, p.treq, p.tsas "
+	"p.portid, p.subtype, p.trtype, p.traddr, p.trsvcid, p.treq, p.tsas "
 	"FROM subsys_port AS sp "
 	"INNER JOIN subsys AS s ON s.id = sp.subsys_id "
 	"INNER JOIN host_subsys AS hs ON hs.subsys_id = sp.subsys_id "
