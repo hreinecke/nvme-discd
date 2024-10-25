@@ -46,6 +46,7 @@ void *inotify_loop(void *);
 
 int stopped = 0;
 int tcp_debug = 0;
+int cmd_debug = 0;
 
 int parse_opts(struct etcd_cdc_ctx *ctx, int argc, char *argv[])
 {
@@ -110,7 +111,9 @@ int main (int argc, char *argv[])
 
 	parse_opts(ctx, argc, argv);
 
-	if (ctx->debug > 2)
+	if (ctx->debug)
+		cmd_debug = 1;
+	if (ctx->debug > 1)
 		tcp_debug = 1;
 	if (!ctx->nqn)
 		ctx->nqn = NVME_DISC_SUBSYS_NAME;

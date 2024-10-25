@@ -136,6 +136,7 @@ struct etcd_cdc_ctx {
 };
 
 extern int tcp_debug;
+extern int cmd_debug;
 
 static inline void set_response(struct nvme_completion *resp,
 				__u16 ccid, __u16 status, bool dnr)
@@ -145,36 +146,6 @@ static inline void set_response(struct nvme_completion *resp,
 	resp->command_id = ccid;
 	resp->status = ((dnr ? NVME_SC_DNR : 0) | status) << 1;
 }
-
-#define ctrl_info(e, f, x...)					\
-	do {							\
-		printf("ctrl %d qid %d: " f "\n",		\
-		       (e)->ctrl ? (e)->ctrl->cntlid : -1,	\
-		       (e)->qid, ##x);				\
-		fflush(stdout);					\
-	} while (0)
-
-#define ctrl_err(e, f, x...)					\
-	do {							\
-		fprintf(stderr, "ctrl %d qid %d: " f "\n",	\
-		       (e)->ctrl ? (e)->ctrl->cntlid : -1,	\
-		       (e)->qid, ##x);				\
-		fflush(stderr);					\
-	} while (0)
-
-#define ep_info(e, f, x...)					\
-	do {							\
-		printf("ep %d: " f "\n",			\
-		       (e)->sockfd, ##x);			\
-		fflush(stdout);					\
-	} while (0)
-
-#define ep_err(e, f, x...)					\
-	do {							\
-		fprintf(stderr, "ep %d: " f "\n",		\
-			(e)->sockfd, ##x);			\
-		fflush(stderr);					\
-	} while (0)
 
 void handle_disconnect(struct endpoint *ep, int shutdown);
 int handle_request(struct endpoint *ep, struct nvme_command *cmd);

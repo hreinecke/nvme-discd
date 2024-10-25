@@ -726,8 +726,10 @@ int tcp_read_msg(struct endpoint *ep)
 			return -errno;
 		}
 		/* No data received, disconnected */
-		if (!len)
+		if (!len) {
+			tcp_info(ep, "disconnect");
 			return -ENODATA;
+		}
 
 		ep->recv_pdu_len += len;
 		msg_len -= len;
