@@ -902,7 +902,7 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 					    watcher);
 			if (!strncmp(ev->name, "addr_", 5)) {
 				port_read_attr(port, ev->name + 5);
-				/* discdb_modify_port(port, ev->name); */
+				discdb_modify_port(&port->port, ev->name + 5);
 			} else {
 				fprintf(stderr,
 					"%s: invalid port attribute %s\n",

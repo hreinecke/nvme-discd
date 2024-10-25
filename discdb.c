@@ -194,6 +194,36 @@ int discdb_add_port(struct nvmet_port *port)
 	return ret;
 }
 
+int discdb_modify_port(struct nvmet_port *port, char *attr)
+{
+	char *value, *sql;
+	int ret;
+
+	if (!strcmp(attr, "trtype"))
+		value = port->trtype;
+	else if (!strcmp(attr, "traddr"))
+		value = port->traddr;
+	else if (!strcmp(attr, "trsvcid"))
+		value = port->trsvcid;
+	else if (!strcmp(attr, "adrfam"))
+		value = port->adrfam;
+	else if (!strcmp(attr, "tsas"))
+		value = port->tsas;
+	else if (!strcmp(attr, "treq"))
+		value = port->treq;
+	else
+		return -EINVAL;
+
+	ret = asprintf(&sql, "UPDATE port SET %s = '%s' "
+		       "WHERE portid = '%d';", attr, value,
+		       port->port_id);
+	if (ret < 0)
+		return ret;
+	ret = sql_exec_simple(sql);
+	free(sql);
+	return ret;
+}
+
 static char del_port_sql[] =
 	"DELETE FROM port WHERE portid = '%d';";
 
@@ -564,24 +594,6 @@ int discdb_host_genctr(const char *hostnqn)
 		ret = parm.val;
 	}
 	return ret;
-}
-
-static int sql_column_cb(void *unused, int argc, char **argv, char **colname)
-{
-	int i;
- 
-	for (i = 0; i < argc; i++)
-		printf("%s ", colname[i]);
-	printf("\n");
-	for (i = 0; i < argc; i++) {
-		if (!strcmp(colname[i], "portid") ||
-		    !strcmp(colname[i], "genctr"))
-			printf("%s ", argv[i]);
-		else
-			printf("'%s' ",
-			       argv[i] ? argv[i] : "NULL");
-	}
-	return 0;
 }
 
 int discdb_open(const char *filename)
