@@ -289,7 +289,6 @@ static int remove_watch(int fd, struct etcd_cdc_ctx *ctx,
 			list_del_init(&port_subsys->entry);
 			free(port_subsys);
 			discdb_del_subsys_port(&subsys->subsys, &port->port);
-			discdb_subsys_disc_entries(&subsys->subsys);
 		}
 		free(watcher);
 		break;
@@ -467,7 +466,6 @@ static void add_port_subsys(struct etcd_cdc_ctx *ctx,
 		printf("link port %d to subsys %s\n",
 		       port->port.port_id, subsys->subsys.subsysnqn);
 	discdb_add_subsys_port(&subsys->subsys, &port->port);
-	discdb_subsys_disc_entries(&subsys->subsys);
 }
 
 static void link_port_subsys(struct etcd_cdc_ctx *ctx,

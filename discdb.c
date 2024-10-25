@@ -584,35 +584,6 @@ static int sql_column_cb(void *unused, int argc, char **argv, char **colname)
 	return 0;
 }
 
-static char subsys_disc_entry_sql[] =
-	"SELECT h.nqn AS host_nqn, h.genctr, s.nqn AS subsys_nqn, "
-	"p.portid, p.trtype, p.traddr, p.trsvcid, p.treq, p.tsas "
-	"FROM subsys_port AS sp "
-	"INNER JOIN subsys AS s ON s.id = sp.subsys_id "
-	"INNER JOIN host_subsys AS hs ON hs.subsys_id = sp.subsys_id "
-	"INNER JOIN host AS h ON hs.host_id = h.id "
-	"INNER JOIN port AS p ON p.portid = sp.port_id "
-	"WHERE s.nqn LIKE '%s';";
-
-int discdb_subsys_disc_entries(struct nvmet_subsys *subsys)
-{
-	char *sql, *errmsg;
-	int ret;
-
-	printf("Display disc entries for %s\n", subsys->subsysnqn);
-	ret = asprintf(&sql, subsys_disc_entry_sql, subsys->subsysnqn);
-	if (ret < 0)
-		return ret;
-	ret = sqlite3_exec(nvme_db, sql, sql_column_cb, NULL, &errmsg);
-	if (ret != SQLITE_OK) {
-		fprintf(stderr, "SQL error executing %s\n", sql);
-		fprintf(stderr, "SQL error: %s\n", errmsg);
-		sqlite3_free(errmsg);
-	}
-	free(sql);
-	return ret;
-}
-
 int discdb_open(const char *filename)
 {
 	int ret;
