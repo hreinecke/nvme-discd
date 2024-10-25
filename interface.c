@@ -44,11 +44,16 @@ static void *interface_thread(void *arg)
 			break;
 
 		if (id < 0) {
-			if (id != -EAGAIN)
+			if (id == -EAGAIN) {
 				fprintf(stderr,
-					"iface %d: listener error %d\n",
-					iface->portid, id);
-			continue;
+					"iface %d: listener interrupted\n",
+					iface->portid);
+				continue;
+			}
+			fprintf(stderr,
+				"iface %d: listener error %d\n",
+				iface->portid, id);
+			break;
 		}
 		ep = enqueue_endpoint(id, iface);
 		if (!ep)
@@ -166,7 +171,7 @@ static void interface_free(struct interface *iface)
 	free(iface);
 }
 
-int interface_delete(struct etcd_cdc_ctx *ctx, struct nvmet_port *port)
+void interface_delete(struct etcd_cdc_ctx *ctx, struct nvmet_port *port)
 {
 	struct interface *iface = NULL, *tmp;
 
@@ -177,13 +182,19 @@ int interface_delete(struct etcd_cdc_ctx *ctx, struct nvmet_port *port)
 			break;
 		}
 	}
-	if (iface) {
-		printf("%s: %s addr %s:%d\n", __func__,
-		       port->adrfam, port->traddr, ctx->port);
-		interface_free(iface);
-	}
+	if (iface)
+		list_del_init(&iface->node);
 	pthread_mutex_unlock(&interface_lock);
-	return 0;
+	if (!iface)
+		return;
+
+	fprintf(stderr, "iface %d: terminating\n",
+		iface->portid);
+	if (iface->pthread)
+		pthread_kill(iface->pthread, SIGTERM);
+	printf("%s: %s addr %s:%d\n", __func__,
+	       port->adrfam, port->traddr, ctx->port);
+	interface_free(iface);
 }
 
 void terminate_interfaces(struct interface *iface, int signo)

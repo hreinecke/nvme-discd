@@ -401,7 +401,6 @@ int tcp_wait_for_connection(struct interface *iface, int timeout_ms)
 			fprintf(stderr,
 				"iface %d: signal %d received, terminating\n",
 				iface->portid, fdsi.ssi_signo);
-			terminate_interfaces(iface, fdsi.ssi_signo);
 			ret = -EINTR;
 			break;
 		}

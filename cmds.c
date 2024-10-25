@@ -324,12 +324,13 @@ static int handle_identify(struct endpoint *ep, struct ep_qe *qe,
 static int format_disc_log(void *data, u64 data_offset,
 			   u64 data_len, struct endpoint *ep)
 {
-	int log_len, genctr, num_recs;
+	int log_len = 0, genctr, num_recs;
 	int log_offset = sizeof(struct nvmf_disc_rsp_page_hdr);
 	u8 *log_ptr;
 	struct nvmf_disc_rsp_page_hdr *log_hdr = data;
 
 	memset(data, 0, data_len);
+#if 0
 	log_ptr = data + log_offset;
 	log_len = discdb_host_disc_entries(ep->ctrl->nqn, log_ptr,
 					   data_len - log_offset,
@@ -338,6 +339,7 @@ static int format_disc_log(void *data, u64 data_offset,
 		ctrl_err(ep, "error formatting discovery log page");
 		return -1;
 	}
+#endif
 	genctr = discdb_host_genctr(ep->ctrl->nqn);
 	if (genctr < 0) {
 		ctrl_err(ep, "error retrieving genctr");

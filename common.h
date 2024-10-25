@@ -158,7 +158,7 @@ u8 *nvmet_etcd_disc_log(struct etcd_cdc_ctx *ctx, char *hostnqn, size_t *len);
 
 int interface_create(struct etcd_cdc_ctx *ctx,
 		     struct nvmet_port *port);
-int interface_delete(struct etcd_cdc_ctx *ctx,
-		     struct nvmet_port *port);
+void interface_delete(struct etcd_cdc_ctx *ctx,
+		      struct nvmet_port *port);
 
 #endif
