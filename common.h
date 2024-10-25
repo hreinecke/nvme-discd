@@ -53,6 +53,25 @@ enum { DISCONNECTED, CONNECTED };
 
 extern int stopped;
 
+struct nvmet_host {
+	char hostnqn[256];
+};
+
+struct nvmet_port {
+	int port_id;
+	char trtype[256];
+	char traddr[256];
+	char trsvcid[256];
+	char adrfam[256];
+	char treq[256];
+	char tsas[256];
+};
+
+struct nvmet_subsys {
+	char subsysnqn[256];
+	int allow_any;
+};
+
 struct ep_qe {
 	struct list_head node;
 	int tag;

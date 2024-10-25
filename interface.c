@@ -4,7 +4,6 @@
 #include <netdb.h>
 
 #include "common.h"
-#include "discdb.h"
 #include "tcp.h"
 #include "endpoint.h"
 

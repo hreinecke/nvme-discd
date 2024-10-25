@@ -12,7 +12,6 @@
 #include "nvme.h"
 #include "nvme_tcp.h"
 #include "common.h"
-#include "discdb.h"
 #include "tcp.h"
 
 #define NVME_OPCODE_MASK 0x3

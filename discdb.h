@@ -1,25 +1,6 @@
 #ifndef _DISCDB_H
 #define _DISCDB_H
 
-struct nvmet_host {
-	char hostnqn[256];
-};
-
-struct nvmet_port {
-	int port_id;
-	char trtype[256];
-	char traddr[256];
-	char trsvcid[256];
-	char adrfam[256];
-	char treq[256];
-	char tsas[256];
-};
-
-struct nvmet_subsys {
-	char subsysnqn[256];
-	int allow_any;
-};
-
 int discdb_init(void);
 int discdb_exit(void);
 int discdb_open(const char *filename);
