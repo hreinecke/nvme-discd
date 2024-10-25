@@ -406,6 +406,8 @@ static int sql_disc_entry_cb(void *argp, int argc, char **argv, char **colname)
 		   goto next;
 
 	   entry->cntlid = (u16)NVME_CNTLID_DYNAMIC;
+	   entry->subtype = NVME_NQN_NVME;
+	   entry->asqsz = htole16(32);
 
 	   for (i = 0; i < argc; i++) {
 		   size_t arg_len = argv[i] ? strlen(argv[i]) : 0;
@@ -465,12 +467,12 @@ static int sql_disc_entry_cb(void *argp, int argc, char **argv, char **colname)
 		   } else if (!strcmp(colname[i], "treq")) {
 			   if (arg_len &&
 			       !strcmp(argv[i], "required")) {
-				   entry->treq = 1;
+				   entry->treq = NVMF_TREQ_REQUIRED;
 			   } else if (arg_len &&
 				      !strcmp(argv[i], "not required")) {
-				   entry->treq = 2;
+				   entry->treq = NVMF_TREQ_NOT_REQUIRED;
 			   } else {
-				   entry->treq = 0;
+				   entry->treq = NVMF_TREQ_NOT_SPECIFIED;
 			   }
 		   } else if (!strcmp(colname[i], "tsas")) {
 			   if (arg_len && strcmp(argv[i], "tls13")) {
