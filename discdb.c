@@ -60,16 +60,53 @@ static int sql_exec_simple(const char *sql_str)
 	return ret;
 }
 
+struct sql_int_value_parm {
+	const char *col;
+	int val;
+	int done;
+};
+
+static int sql_int_value_cb(void *argp, int argc, char **argv, char **colname)
+{
+	struct sql_int_value_parm *parm = argp;
+	int i;
+
+	if (parm->done != 0)
+		return 0;
+
+	for (i = 0; i < argc; i++) {
+		char *eptr = NULL;
+
+		if (strcmp(parm->col, colname[i])) {
+			printf("%s: ignore col %s\n", __func__,
+			       colname[i]);
+			continue;
+		}
+		if (!argv[i]) {
+			parm->val = 0;
+			parm->done = 1;
+			break;
+		}
+		parm->val = strtol(argv[i], &eptr, 10);
+		if (argv[i] == eptr) {
+			parm->done = -EINVAL;
+			break;
+		}
+		parm->done = 1;
+	}
+	return 0;
+}
+
 static const char *init_sql[6] = {
 "CREATE TABLE host ( id INTEGER PRIMARY KEY AUTOINCREMENT, "
 "nqn VARCHAR(223) UNIQUE NOT NULL, genctr INTEGER DEFAULT 0);",
 "CREATE TABLE subsys ( id INTEGER PRIMARY KEY AUTOINCREMENT, "
 "nqn VARCHAR(223) UNIQUE NOT NULL, allow_any INT DEFAULT 1);",
-"CREATE TABLE port ( portid SMALLINT UNSIGNED PRIMARY KEY,"
+"CREATE TABLE port ( portid INTEGER PRIMARY KEY AUTOINCREMENT,"
 "trtype INT DEFAULT 3, adrfam INT DEFAULT 1, subtype INT DEFAULT 2, "
 "treq INT DEFAULT 0, traddr CHAR(255) NOT NULL, "
 "trsvcid CHAR(32) DEFAULT '', tsas CHAR(255) DEFAULT '', "
-"WITHOUT ROWID, UNIQUE(trtype,adrfam,traddr,trsvcid));",
+"UNIQUE(trtype,adrfam,traddr,trsvcid));",
 "CREATE UNIQUE INDEX port_addr ON port(trtype, adrfam, traddr, trsvcid);",
 "CREATE TABLE host_subsys ( host_id INTEGER, subsys_id INTEGER, "
 "FOREIGN KEY (host_id) REFERENCES host(id) "
@@ -179,21 +216,56 @@ int discdb_del_subsys(struct nvmet_subsys *subsys)
 }
 
 static char add_port_sql[] =
-	"INSERT INTO port (portid, trtype, adrfam, treq, traddr, trsvcid, tsas)"
-	" VALUES ('%d','%s','%s','%s','%s','%s','%s');";
+	"INSERT INTO port (trtype, adrfam, treq, traddr, trsvcid, tsas)"
+	" VALUES ('%s','%s','%s','%s','%s','%s');";
+
+static char select_portid_sql[] =
+	"SELECT portid FROM port "
+	"WHERE trtype LIKE '%s' AND adrfam LIKE '%s' AND "
+	"traddr LIKE '%s' AND trsvcid LIKE '%s';";
 
 int discdb_add_port(struct nvmet_port *port)
 {
-	char *sql;
+	char *sql, *errmsg;
+	struct sql_int_value_parm parm = {
+		.col = "portid",
+		.val = 0,
+		.done = 0,
+	};
 	int ret;
 
-	ret = asprintf(&sql, add_port_sql, port->port_id, port->trtype,
+	ret = asprintf(&sql, add_port_sql, port->trtype,
 		       port->adrfam, port->treq, port->traddr, port->trsvcid,
 		       port->tsas);
 	if (ret < 0)
 		return ret;
 	ret = sql_exec_simple(sql);
 	free(sql);
+	ret = asprintf(&sql, select_portid_sql, port->trtype,
+		       port->adrfam, port->traddr, port->trsvcid);
+	if (ret < 0)
+		return ret;
+	ret = sqlite3_exec(nvme_db, sql, sql_int_value_cb,
+			   &parm, &errmsg);
+	if (ret != SQLITE_OK) {
+		fprintf(stderr, "SQL error executing %s\n", sql);
+		fprintf(stderr, "SQL error: %s\n", errmsg);
+		sqlite3_free(errmsg);
+	}
+	free(sql);
+	if (parm.done > 0) {
+		fprintf(stderr, "Generated port id %d\n", parm.val);
+		port->port_id = parm.val;
+		ret = 0;
+	} else if (parm.done < 0) {
+		errno = -parm.done;
+		fprintf(stderr, "error %d fetching port id\n", errno);
+		ret = -1;
+	} else {
+		fprintf(stderr, "port id not found\n");
+		errno = ENODATA;
+		ret = -1;
+	}
 	return ret;
 }
 
@@ -547,45 +619,6 @@ int discdb_host_disc_entries(const char *hostnqn, u8 *log, int log_len)
 	free(sql);
 	printf("disc entries: cur %d len %d\n", parm.cur, parm.len);
 	return parm.cur;
-}
-
-struct sql_int_value_parm {
-	const char *col;
-	int val;
-	int done;
-};
-
-static int sql_int_value_cb(void *argp, int argc, char **argv, char **colname)
-{
-	struct sql_int_value_parm *parm = argp;
-	int i;
-
-	if (parm->done != 0)
-		return 0;
-
-	for (i = 0; i < argc; i++) {
-		char *eptr = NULL;
-
-		if (strcmp(parm->col, colname[i])) {
-			printf("%s: ignore col %s\n", __func__,
-			       colname[i]);
-			continue;
-		}
-		if (!argv[i]) {
-			parm->val = 0;
-			parm->done = 1;
-			break;
-		}
-		parm->val = strtol(argv[i], &eptr, 10);
-		if (argv[i] == eptr) {
-			printf("%s: invalid value '%s'\n",
-			       __func__, argv[i]);
-			parm->done = -EINVAL;
-			break;
-		}
-		parm->done = 1;
-	}
-	return 0;
 }
 
 static char host_genctr_sql[] =

@@ -426,7 +426,6 @@ static struct inotify_port *update_port(char *ports_dir, int port_id)
 		return NULL;
 	}
 	INIT_LIST_HEAD(&port->subsystems);
-	port->port.port_id = port_id;
 	sprintf(port->watcher.dirname, "%s/%d",
 		ports_dir, port_id);
 	port_read_attr(port, "trtype");
