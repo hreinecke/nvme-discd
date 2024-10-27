@@ -256,23 +256,29 @@ int discdb_add_port(struct nvmet_port *port)
 			return -EINVAL;
 		}
 	}
+	ret = sql_exec_simple("BEGIN TRANSACTION;");
+	if (ret < 0)
+		return ret;
+
 	ret = asprintf(&sql, add_port_sql, port->trtype, port->adrfam,
 		       port->treq, port->traddr, port->trsvcid,
 		       port->tsas);
 	if (ret < 0)
-		return ret;
+		goto rollback;
+
 	ret = sql_exec_simple(sql);
 	free(sql);
 	ret = asprintf(&sql, select_portid_sql, port->trtype,
 		       port->adrfam, port->traddr, port->trsvcid);
 	if (ret < 0)
-		return ret;
+		goto rollback;
 	ret = sqlite3_exec(nvme_db, sql, sql_int_value_cb,
 			   &parm, &errmsg);
 	if (ret != SQLITE_OK) {
 		fprintf(stderr, "SQL error executing %s\n", sql);
 		fprintf(stderr, "SQL error: %s\n", errmsg);
 		sqlite3_free(errmsg);
+		parm.done = -EINVAL;
 	}
 	free(sql);
 	if (parm.done > 0) {
@@ -286,21 +292,31 @@ int discdb_add_port(struct nvmet_port *port)
 		fprintf(stderr, "port id not found\n");
 		ret = -ENODATA;
 	}
+	if (ret < 0)
+		goto rollback;
 	if (!strlen(port->traddr)) {
 		fprintf(stderr, "port %d: update traddr\n", port->port_id);
 		sprintf(port->traddr, "%d", port->port_id);
 		ret = asprintf(&sql, update_traddr_sql, port->traddr,
 			       port->port_id);
-		if (ret > 0) {
-			ret = sql_exec_simple(sql);
-			free(sql);
-		}
+		if (ret < 0)
+			goto rollback;
+		ret = sql_exec_simple(sql);
+		free(sql);
+		if (ret < 0)
+			goto rollback;
 	}
+	ret = sql_exec_simple("COMMIT TRANSACTION;");
+	if (ret)
+		return ret;
 	if (port->port_id > 0xfffc) {
 		fprintf(stderr, "resetting port_id counter\n");
 		ret = sql_exec_simple("UPDATE sqlite_sequence SET seq = 1 "
 				      "WHERE name = 'port';");
 	}
+	return ret;
+rollback:
+	ret = sql_exec_simple("ROLLBACK TRANSACTION;");
 	return ret;
 }
 
