@@ -520,7 +520,7 @@ static void watch_port(int fd, struct etcd_cdc_ctx *ctx,
 	if (!port)
 		return;
 
-	if (discdb_add_port(&port->port) < 0) {
+	if (discdb_add_port(&port->port, NVME_NQN_NVME) < 0) {
 		fprintf(stderr, "%s: failed to insert port id %s\n",
 			__func__, port_str);
 		free(port);

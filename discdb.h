@@ -11,7 +11,7 @@ int discdb_del_host(struct nvmet_host *host);
 int discdb_add_subsys(struct nvmet_subsys *subsys);
 int discdb_modify_subsys(struct nvmet_subsys *subsys);
 int discdb_del_subsys(struct nvmet_subsys *subsys);
-int discdb_add_port(struct nvmet_port *port);
+int discdb_add_port(struct nvmet_port *port, u8 subtype);
 int discdb_modify_port(struct nvmet_port *port, char *attr);
 int discdb_del_port(struct nvmet_port *port);
 int discdb_add_host_subsys(struct nvmet_host *host,

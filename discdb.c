@@ -216,8 +216,8 @@ int discdb_del_subsys(struct nvmet_subsys *subsys)
 }
 
 static char add_port_sql[] =
-	"INSERT INTO port (trtype, adrfam, treq, traddr, trsvcid, tsas)"
-	" VALUES ('%s','%s','%s','%s','%s','%s');";
+	"INSERT INTO port (trtype, adrfam, treq, traddr, trsvcid, tsas,subtype)"
+	" VALUES ('%s','%s','%s','%s','%s','%s','%d');";
 
 static char select_portid_sql[] =
 	"SELECT portid FROM port "
@@ -228,7 +228,7 @@ static char update_traddr_sql[] =
 	"UPDATE port SET traddr = '%s' "
 	"WHERE portid = '%d';";
 
-int discdb_add_port(struct nvmet_port *port)
+int discdb_add_port(struct nvmet_port *port, u8 subtype)
 {
 	char *sql, *errmsg;
 	struct sql_int_value_parm parm = {
@@ -267,7 +267,7 @@ int discdb_add_port(struct nvmet_port *port)
 
 	ret = asprintf(&sql, add_port_sql, port->trtype, port->adrfam,
 		       port->treq, port->traddr, port->trsvcid,
-		       port->tsas);
+		       port->tsas, subtype);
 	if (ret < 0)
 		goto rollback;
 
