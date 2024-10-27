@@ -103,8 +103,8 @@ static const char *init_sql[6] = {
 "CREATE TABLE subsys ( id INTEGER PRIMARY KEY AUTOINCREMENT, "
 "nqn VARCHAR(223) UNIQUE NOT NULL, allow_any INT DEFAULT 1);",
 "CREATE TABLE port ( portid INTEGER PRIMARY KEY AUTOINCREMENT,"
-"trtype INT, adrfam INT, subtype INT DEFAULT 2, "
-"treq INT DEFAULT 0, traddr CHAR(255) NOT NULL, "
+"trtype CHAR(32) NOT NULL, adrfam CHAR(32) DEFAULT '', "
+"subtype INT DEFAULT 2, treq char(32), traddr CHAR(255) NOT NULL, "
 "trsvcid CHAR(32) DEFAULT '', tsas CHAR(255) DEFAULT '', "
 "UNIQUE(trtype,adrfam,traddr,trsvcid));",
 "CREATE UNIQUE INDEX port_addr ON port(trtype, adrfam, traddr, trsvcid);",
@@ -242,18 +242,23 @@ int discdb_add_port(struct nvmet_port *port)
 		fprintf(stderr, "no traddr specified\n");
 		return -EINVAL;
 	}
-	if (!strlen(port->trsvcid) && !strcmp(port->trtype, "tcp")) {
-		fprintf(stderr, "no trsvcid specified\n");
-		return -EINVAL;
-	}
-	if (!strlen(port->adrfam)) {
-		if (!strcmp(port->trtype, "fc"))
-			sprintf(port->adrfam, "fc");
-		else if (!strcmp(port->trtype, "loop"))
-			sprintf(port->adrfam, "loop");
-		else {
-			fprintf(stderr, "no adrfam specified\n");
+	if (!strcmp(port->trtype, "tcp") || !strcmp(port->trtype, "rdma")) {
+		if (!strlen(port->trsvcid)) {
+			fprintf(stderr, "no trsvcid specified\n");
 			return -EINVAL;
+		}
+		if (strcmp(port->adrfam, "ipv4") &&
+		    strcmp(port->adrfam, "ipv6")) {
+			fprintf(stderr, "invalid adrfam %s\n",
+				port->adrfam);
+		}
+	}
+	if (!strcmp(port->trtype, "fc") || !strcmp(port->trtype, "loop")) {
+		if (!strcmp(port->adrfam, port->trtype)) {
+			strcpy(port->adrfam, port->trtype);
+		}
+		if (strlen(port->trsvcid)) {
+			memset(port->trsvcid, 0, sizeof(port->trsvcid));
 		}
 	}
 	ret = sql_exec_simple("BEGIN TRANSACTION;");
@@ -517,125 +522,133 @@ struct sql_disc_entry_parm {
 
 static int sql_disc_entry_cb(void *argp, int argc, char **argv, char **colname)
 {
-	   int i;
-	   struct sql_disc_entry_parm *parm = argp;
-	   struct nvmf_disc_rsp_page_entry *entry;
+	int i;
+	struct sql_disc_entry_parm *parm = argp;
+	struct nvmf_disc_rsp_page_entry *entry;
 
-	   if (!argp) {
-		   fprintf(stderr, "%s: Invalid parameter\n", __func__);
-		   return 0;
-	   }
-	   if (!parm->buffer)
-		   goto next;
-	   entry = (struct nvmf_disc_rsp_page_entry *)(parm->buffer + parm->cur);
-	   if (parm->cur >= parm->len)
-		   goto next;
+	if (!argp) {
+		fprintf(stderr, "%s: Invalid parameter\n", __func__);
+		return 0;
+	}
+	if (!parm->buffer)
+		goto next;
+	entry = (struct nvmf_disc_rsp_page_entry *)(parm->buffer + parm->cur);
+	if (parm->cur >= parm->len)
+		goto next;
 
-	   memset(entry, 0, sizeof(*entry));
-	   entry->cntlid = (u16)NVME_CNTLID_DYNAMIC;
-	   entry->asqsz = htole16(32);
-	   entry->subtype = NVME_NQN_NVME;
-	   entry->treq = NVMF_TREQ_NOT_SPECIFIED;
-	   entry->tsas.tcp.sectype = NVMF_TCP_SECTYPE_NONE;
+	memset(entry, 0, sizeof(*entry));
+	entry->cntlid = (u16)NVME_CNTLID_DYNAMIC;
+	entry->asqsz = htole16(32);
+	entry->subtype = NVME_NQN_NVME;
+	entry->treq = NVMF_TREQ_NOT_SPECIFIED;
+	entry->tsas.tcp.sectype = NVMF_TCP_SECTYPE_NONE;
 
-	   for (i = 0; i < argc; i++) {
-		   size_t arg_len = argv[i] ? strlen(argv[i]) : 0;
+	for (i = 0; i < argc; i++) {
+		size_t arg_len = argv[i] ? strlen(argv[i]) : 0;
 
-		   if (!strcmp(colname[i], "subsys_nqn")) {
-			   if (arg_len > NVMF_NQN_FIELD_LEN)
-				   arg_len = NVMF_NQN_FIELD_LEN;
-			   strncpy(entry->subnqn, argv[i], arg_len);
-		   } else if (!strcmp(colname[i], "portid")) {
-			   char *eptr = NULL;
-			   int val;
+		if (!strcmp(colname[i], "subsys_nqn")) {
+			if (arg_len > NVMF_NQN_FIELD_LEN)
+				arg_len = NVMF_NQN_FIELD_LEN;
+			strncpy(entry->subnqn, argv[i], arg_len);
+		} else if (!strcmp(colname[i], "portid")) {
+			char *eptr = NULL;
+			int val;
 
-			   val = strtol(argv[i], &eptr, 10);
-			   if (argv[i] == eptr)
-				   continue;
-			   entry->portid = htole16(val);
-		   } else if (!strcmp(colname[i], "subtype")) {
-			   char *eptr = NULL;
-			   int val;
+			val = strtol(argv[i], &eptr, 10);
+			if (argv[i] == eptr)
+				continue;
+			entry->portid = htole16(val);
+		} else if (!strcmp(colname[i], "subtype")) {
+			char *eptr = NULL;
+			int val;
 
-			   val = strtol(argv[i], &eptr, 10);
-			   if (argv[i] == eptr)
-				   continue;
-			   entry->subtype = val;
-		   } else if (!strcmp(colname[i], "adrfam")) {
-			   if (!strcmp(argv[i], "ipv4")) {
-				   entry->adrfam = NVMF_ADDR_FAMILY_IP4;
-			   } else if (!strcmp(argv[i], "ipv6")) {
-				   entry->adrfam = NVMF_ADDR_FAMILY_IP6;
-			   } else if (!strcmp(argv[i], "fc")) {
-				   entry->adrfam = NVMF_ADDR_FAMILY_FC;
-			   } else if (!strcmp(argv[i], "ib")) {
-				   entry->adrfam = NVMF_ADDR_FAMILY_IB;
-			   } else if (!strcmp(argv[i], "pci")) {
-				   entry->adrfam = NVMF_ADDR_FAMILY_PCI;
-			   } else {
-				   entry->adrfam = NVMF_ADDR_FAMILY_LOOP;
-			   }
-		   } else if (!strcmp(colname[i], "trtype")) {
-			   if (!strcmp(argv[i], "tcp")) {
-				   entry->trtype = NVMF_TRTYPE_TCP;
-			   } else if (!strcmp(argv[i], "fc")) {
-				   entry->trtype = NVMF_TRTYPE_FC;
-			   } else if (!strcmp(argv[i], "rdma")) {
-				   entry->trtype = NVMF_TRTYPE_RDMA;
-			   } else {
-				   entry->trtype = NVMF_TRTYPE_LOOP;
-			   }
-		   } else if (!strcmp(colname[i], "traddr")) {
-			   if (!arg_len) {
-				   memset(entry->traddr, 0,
-					  NVMF_NQN_FIELD_LEN);
-				   continue;
-			   }
-			   if (arg_len > NVMF_NQN_FIELD_LEN)
-				   arg_len = NVMF_NQN_FIELD_LEN;
-			   memcpy(entry->traddr, argv[i], arg_len);
-		   } else if (!strcmp(colname[i], "trsvcid")) {
-			   if (!arg_len) {
-				   memset(entry->trsvcid, 0,
-					  NVMF_TRSVCID_SIZE);
-				   continue;
-			   }
-			   if (arg_len > NVMF_TRSVCID_SIZE)
-				   arg_len = NVMF_TRSVCID_SIZE;
-			   memcpy(entry->trsvcid, argv[i], arg_len);
-		   } else if (!strcmp(colname[i], "treq")) {
-			   if (arg_len &&
-			       !strcmp(argv[i], "required")) {
-				   entry->treq = NVMF_TREQ_REQUIRED;
-			   } else if (arg_len &&
-				      !strcmp(argv[i], "not required")) {
-				   entry->treq = NVMF_TREQ_NOT_REQUIRED;
-			   }
-		   } else if (!strcmp(colname[i], "tsas")) {
-			   if (arg_len && strcmp(argv[i], "tls13")) {
-				   entry->tsas.tcp.sectype =
-					   NVMF_TCP_SECTYPE_TLS13;
-			   } else {
-				   entry->tsas.tcp.sectype =
-					   NVMF_TCP_SECTYPE_NONE;
-			   }
-		   } else {
-			   fprintf(stderr, "skip discovery type '%s'\n",
-				   colname[i]);
-		   }
-	   }
-	   if (entry->trtype == NVMF_TRTYPE_LOOP)
-		   entry->adrfam = NVMF_ADDR_FAMILY_LOOP;
-	   if (entry->trtype == NVMF_TRTYPE_FC)
-		   entry->adrfam = NVMF_ADDR_FAMILY_FC;
-	   if (!strlen(entry->traddr)) {
-		   fprintf(stderr, "Empty discovery record (%d, %d)\n",
-			   entry->portid, entry->trtype);
-		   return 0;
-	   }
+			val = strtol(argv[i], &eptr, 10);
+			if (argv[i] == eptr)
+				continue;
+			entry->subtype = val;
+		} else if (!strcmp(colname[i], "adrfam")) {
+			if (!strcmp(argv[i], "ipv4")) {
+				entry->adrfam = NVMF_ADDR_FAMILY_IP4;
+			} else if (!strcmp(argv[i], "ipv6")) {
+				entry->adrfam = NVMF_ADDR_FAMILY_IP6;
+			} else if (!strcmp(argv[i], "fc")) {
+				entry->adrfam = NVMF_ADDR_FAMILY_FC;
+			} else if (!strcmp(argv[i], "ib")) {
+				entry->adrfam = NVMF_ADDR_FAMILY_IB;
+			} else if (!strcmp(argv[i], "pci")) {
+				entry->adrfam = NVMF_ADDR_FAMILY_PCI;
+			} else {
+				entry->adrfam = NVMF_ADDR_FAMILY_LOOP;
+			}
+		} else if (!strcmp(colname[i], "trtype")) {
+			if (!strcmp(argv[i], "tcp")) {
+				entry->trtype = NVMF_TRTYPE_TCP;
+			} else if (!strcmp(argv[i], "fc")) {
+				entry->trtype = NVMF_TRTYPE_FC;
+			} else if (!strcmp(argv[i], "rdma")) {
+				entry->trtype = NVMF_TRTYPE_RDMA;
+			} else {
+				entry->trtype = NVMF_TRTYPE_LOOP;
+			}
+		} else if (!strcmp(colname[i], "traddr")) {
+			if (!arg_len) {
+				memset(entry->traddr, 0,
+				       NVMF_NQN_FIELD_LEN);
+				continue;
+			}
+			if (arg_len > NVMF_NQN_FIELD_LEN)
+				arg_len = NVMF_NQN_FIELD_LEN;
+			memcpy(entry->traddr, argv[i], arg_len);
+		} else if (!strcmp(colname[i], "trsvcid")) {
+			if (!arg_len) {
+				memset(entry->trsvcid, 0,
+				       NVMF_TRSVCID_SIZE);
+				continue;
+			}
+			if (arg_len > NVMF_TRSVCID_SIZE)
+				arg_len = NVMF_TRSVCID_SIZE;
+			memcpy(entry->trsvcid, argv[i], arg_len);
+		} else if (!strcmp(colname[i], "treq")) {
+			if (arg_len &&
+			    !strcmp(argv[i], "required")) {
+				entry->treq = NVMF_TREQ_REQUIRED;
+			} else if (arg_len &&
+				   !strcmp(argv[i], "not required")) {
+				entry->treq = NVMF_TREQ_NOT_REQUIRED;
+			}
+		} else if (!strcmp(colname[i], "tsas")) {
+			if (arg_len && strcmp(argv[i], "tls13")) {
+				entry->tsas.tcp.sectype =
+					NVMF_TCP_SECTYPE_TLS13;
+			} else {
+				entry->tsas.tcp.sectype =
+					NVMF_TCP_SECTYPE_NONE;
+			}
+		} else {
+			fprintf(stderr, "skip discovery type '%s'\n",
+				colname[i]);
+		}
+	}
+	if (entry->trtype == NVMF_TRTYPE_LOOP)
+		entry->adrfam = NVMF_ADDR_FAMILY_LOOP;
+	if (entry->trtype == NVMF_TRTYPE_FC)
+		entry->adrfam = NVMF_ADDR_FAMILY_FC;
+	if (entry->trtype == NVMF_TRTYPE_TCP &&
+	    (entry->adrfam != NVMF_ADDR_FAMILY_IP4 &&
+	     entry->adrfam != NVMF_ADDR_FAMILY_IP6)) {
+		if (strchr(entry->traddr, ':'))
+			entry->adrfam = NVMF_ADDR_FAMILY_IP6;
+		else
+			entry->adrfam = NVMF_ADDR_FAMILY_IP4;
+	}
+	if (!strlen(entry->traddr)) {
+		fprintf(stderr, "Empty discovery record (%d, %d)\n",
+			entry->portid, entry->trtype);
+		return 0;
+	}
 next:
-	   parm->cur += sizeof(struct nvmf_disc_rsp_page_entry);
-	   return 0;
+	parm->cur += sizeof(struct nvmf_disc_rsp_page_entry);
+	return 0;
 }
 
 static char host_disc_entry_sql[] =
