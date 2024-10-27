@@ -511,6 +511,12 @@ static void watch_port(int fd, struct etcd_cdc_ctx *ctx,
 	if (!port)
 		return;
 
+	if (discdb_add_port(&port->port) < 0) {
+		fprintf(stderr, "%s: failed to insert port id %s\n",
+			__func__, port_str);
+		free(port);
+		return;
+	}
 	port->watcher.type = TYPE_PORT;
 	watcher = add_watch(fd, &port->watcher, IN_MODIFY | IN_DELETE_SELF);
 	if (watcher) {
@@ -518,7 +524,6 @@ static void watch_port(int fd, struct etcd_cdc_ctx *ctx,
 			free(port);
 		return;
 	}
-	discdb_add_port(&port->port);
 	interface_create(ctx, &port->port);
 
 	strcpy(subsys_dir, port->watcher.dirname);
