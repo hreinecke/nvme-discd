@@ -425,6 +425,7 @@ static struct inotify_port *update_port(char *ports_dir, int port_id)
 			__func__, port_id);
 		return NULL;
 	}
+	memset(port, 0, sizeof(struct inotify_port));
 	INIT_LIST_HEAD(&port->subsystems);
 	sprintf(port->watcher.dirname, "%s/%d",
 		ports_dir, port_id);
@@ -434,6 +435,14 @@ static struct inotify_port *update_port(char *ports_dir, int port_id)
 	port_read_attr(port, "adrfam");
 	port_read_attr(port, "treq");
 	port_read_attr(port, "tsas");
+	if (!strlen(port->port.adrfam)) {
+		if (!strcmp(port->port.trtype, "fc"))
+			strcpy(port->port.adrfam, "fc");
+		else
+			strcpy(port->port.adrfam, "loop");
+	}
+	if (strcmp(port->port.trtype, "tcp"))
+		memset(port->port.treq, 0, 256);
 	return port;
 }
 

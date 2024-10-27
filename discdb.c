@@ -103,7 +103,7 @@ static const char *init_sql[6] = {
 "CREATE TABLE subsys ( id INTEGER PRIMARY KEY AUTOINCREMENT, "
 "nqn VARCHAR(223) UNIQUE NOT NULL, allow_any INT DEFAULT 1);",
 "CREATE TABLE port ( portid INTEGER PRIMARY KEY AUTOINCREMENT,"
-"trtype INT DEFAULT 3, adrfam INT DEFAULT 1, subtype INT DEFAULT 2, "
+"trtype INT, adrfam INT, subtype INT DEFAULT 2, "
 "treq INT DEFAULT 0, traddr CHAR(255) NOT NULL, "
 "trsvcid CHAR(32) DEFAULT '', tsas CHAR(255) DEFAULT '', "
 "UNIQUE(trtype,adrfam,traddr,trsvcid));",
@@ -221,8 +221,12 @@ static char add_port_sql[] =
 
 static char select_portid_sql[] =
 	"SELECT portid FROM port "
-	"WHERE trtype LIKE '%s' AND adrfam LIKE '%s' AND "
-	"traddr LIKE '%s' AND trsvcid LIKE '%s';";
+	"WHERE trtype = '%s' AND adrfam = '%s' AND "
+	"traddr = '%s' AND trsvcid = '%s';";
+
+static char update_traddr_sql[] =
+	"UPDATE port SET traddr = '%s' "
+	"WHERE portid = '%d';";
 
 int discdb_add_port(struct nvmet_port *port)
 {
@@ -234,8 +238,26 @@ int discdb_add_port(struct nvmet_port *port)
 	};
 	int ret;
 
-	ret = asprintf(&sql, add_port_sql, port->trtype,
-		       port->adrfam, port->treq, port->traddr, port->trsvcid,
+	if (!strlen(port->traddr) && strcmp(port->trtype, "loop")) {
+		fprintf(stderr, "no traddr specified\n");
+		return -EINVAL;
+	}
+	if (!strlen(port->trsvcid) && !strcmp(port->trtype, "tcp")) {
+		fprintf(stderr, "no trsvcid specified\n");
+		return -EINVAL;
+	}
+	if (!strlen(port->adrfam)) {
+		if (!strcmp(port->trtype, "fc"))
+			sprintf(port->adrfam, "fc");
+		else if (!strcmp(port->trtype, "loop"))
+			sprintf(port->adrfam, "loop");
+		else {
+			fprintf(stderr, "no adrfam specified\n");
+			return -EINVAL;
+		}
+	}
+	ret = asprintf(&sql, add_port_sql, port->trtype, port->adrfam,
+		       port->treq, port->traddr, port->trsvcid,
 		       port->tsas);
 	if (ret < 0)
 		return ret;
@@ -263,6 +285,16 @@ int discdb_add_port(struct nvmet_port *port)
 	} else {
 		fprintf(stderr, "port id not found\n");
 		ret = -ENODATA;
+	}
+	if (!strlen(port->traddr)) {
+		fprintf(stderr, "port %d: update traddr\n", port->port_id);
+		sprintf(port->traddr, "%d", port->port_id);
+		ret = asprintf(&sql, update_traddr_sql, port->traddr,
+			       port->port_id);
+		if (ret > 0) {
+			ret = sql_exec_simple(sql);
+			free(sql);
+		}
 	}
 	if (port->port_id > 0xfffc) {
 		fprintf(stderr, "resetting port_id counter\n");
@@ -393,7 +425,7 @@ static char add_subsys_port_sql[] =
 	"WHERE subsys.nqn LIKE '%s' AND port.portid = '%d';";
 
 static char select_subsys_port_sql[] =
-	"SELECT s.nqn, p.portid, p.trtype, p.traddr "
+	"SELECT s.nqn, p.portid, p.trtype, p.traddr, p.adrfam "
 	"FROM subsys_port AS sp "
 	"INNER JOIN subsys AS s ON s.id = sp.subsys_id "
 	"INNER JOIN port AS p ON p.portid = sp.port_id;";
@@ -483,8 +515,12 @@ static int sql_disc_entry_cb(void *argp, int argc, char **argv, char **colname)
 	   if (parm->cur >= parm->len)
 		   goto next;
 
+	   memset(entry, 0, sizeof(*entry));
 	   entry->cntlid = (u16)NVME_CNTLID_DYNAMIC;
 	   entry->asqsz = htole16(32);
+	   entry->subtype = NVME_NQN_NVME;
+	   entry->treq = NVMF_TREQ_NOT_SPECIFIED;
+	   entry->tsas.tcp.sectype = NVMF_TCP_SECTYPE_NONE;
 
 	   for (i = 0; i < argc; i++) {
 		   size_t arg_len = argv[i] ? strlen(argv[i]) : 0;
@@ -500,7 +536,7 @@ static int sql_disc_entry_cb(void *argp, int argc, char **argv, char **colname)
 			   val = strtol(argv[i], &eptr, 10);
 			   if (argv[i] == eptr)
 				   continue;
-			   entry->portid = val;
+			   entry->portid = htole16(val);
 		   } else if (!strcmp(colname[i], "subtype")) {
 			   char *eptr = NULL;
 			   int val;
@@ -518,6 +554,8 @@ static int sql_disc_entry_cb(void *argp, int argc, char **argv, char **colname)
 				   entry->adrfam = NVMF_ADDR_FAMILY_FC;
 			   } else if (!strcmp(argv[i], "ib")) {
 				   entry->adrfam = NVMF_ADDR_FAMILY_IB;
+			   } else if (!strcmp(argv[i], "pci")) {
+				   entry->adrfam = NVMF_ADDR_FAMILY_PCI;
 			   } else {
 				   entry->adrfam = NVMF_ADDR_FAMILY_LOOP;
 			   }
@@ -556,8 +594,6 @@ static int sql_disc_entry_cb(void *argp, int argc, char **argv, char **colname)
 			   } else if (arg_len &&
 				      !strcmp(argv[i], "not required")) {
 				   entry->treq = NVMF_TREQ_NOT_REQUIRED;
-			   } else {
-				   entry->treq = NVMF_TREQ_NOT_SPECIFIED;
 			   }
 		   } else if (!strcmp(colname[i], "tsas")) {
 			   if (arg_len && strcmp(argv[i], "tls13")) {
@@ -572,13 +608,22 @@ static int sql_disc_entry_cb(void *argp, int argc, char **argv, char **colname)
 				   colname[i]);
 		   }
 	   }
+	   if (entry->trtype == NVMF_TRTYPE_LOOP)
+		   entry->adrfam = NVMF_ADDR_FAMILY_LOOP;
+	   if (entry->trtype == NVMF_TRTYPE_FC)
+		   entry->adrfam = NVMF_ADDR_FAMILY_FC;
+	   if (!strlen(entry->traddr)) {
+		   fprintf(stderr, "Empty discovery record (%d, %d)\n",
+			   entry->portid, entry->trtype);
+		   return 0;
+	   }
 next:
 	   parm->cur += sizeof(struct nvmf_disc_rsp_page_entry);
 	   return 0;
 }
 
 static char host_disc_entry_sql[] =
-	"SELECT h.genctr, s.nqn AS subsys_nqn, "
+	"SELECT s.nqn AS subsys_nqn, "
 	"p.portid, p.subtype, p.trtype, p.traddr, p.trsvcid, p.treq, p.tsas "
 	"FROM subsys_port AS sp "
 	"INNER JOIN subsys AS s ON s.id = sp.subsys_id "
