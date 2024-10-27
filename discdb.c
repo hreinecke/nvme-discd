@@ -258,13 +258,16 @@ int discdb_add_port(struct nvmet_port *port)
 		port->port_id = parm.val;
 		ret = 0;
 	} else if (parm.done < 0) {
-		errno = -parm.done;
-		fprintf(stderr, "error %d fetching port id\n", errno);
-		ret = -1;
+		fprintf(stderr, "error %d fetching port id\n", -parm.done);
+		ret = parm.done;
 	} else {
 		fprintf(stderr, "port id not found\n");
-		errno = ENODATA;
-		ret = -1;
+		ret = -ENODATA;
+	}
+	if (port->port_id > 0xfffc) {
+		fprintf(stderr, "resetting port_id counter\n");
+		ret = sql_exec_simple("UPDATE sqlite_sequence SET seq = 1 "
+				      "WHERE name = 'port';");
 	}
 	return ret;
 }
