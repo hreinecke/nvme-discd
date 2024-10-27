@@ -60,7 +60,7 @@ static int sql_exec_simple(const char *sql_str)
 	return ret;
 }
 
-static const char *init_sql[5] = {
+static const char *init_sql[6] = {
 "CREATE TABLE host ( id INTEGER PRIMARY KEY AUTOINCREMENT, "
 "nqn VARCHAR(223) UNIQUE NOT NULL, genctr INTEGER DEFAULT 0);",
 "CREATE TABLE subsys ( id INTEGER PRIMARY KEY AUTOINCREMENT, "
@@ -68,7 +68,9 @@ static const char *init_sql[5] = {
 "CREATE TABLE port ( portid SMALLINT UNSIGNED PRIMARY KEY,"
 "trtype INT DEFAULT 3, adrfam INT DEFAULT 1, subtype INT DEFAULT 2, "
 "treq INT DEFAULT 0, traddr CHAR(255) NOT NULL, "
-"trsvcid CHAR(32) DEFAULT '', tsas CHAR(255) DEFAULT '', WITHOUT ROWID);",
+"trsvcid CHAR(32) DEFAULT '', tsas CHAR(255) DEFAULT '', "
+"WITHOUT ROWID, UNIQUE(trtype,adrfam,traddr,trsvcid));",
+"CREATE UNIQUE INDEX port_addr ON port(trtype, adrfam, traddr, trsvcid);",
 "CREATE TABLE host_subsys ( host_id INTEGER, subsys_id INTEGER, "
 "FOREIGN KEY (host_id) REFERENCES host(id) "
 "ON UPDATE CASCADE ON DELETE RESTRICT, "
@@ -85,16 +87,17 @@ int discdb_init(void)
 {
 	int i, ret;
 
-	for (i = 0; i < 5; i++) {
+	for (i = 0; i < 6; i++) {
 		ret = sql_exec_simple(init_sql[i]);
 	}
 	return ret;
 }
 
-static const char *exit_sql[5] =
+static const char *exit_sql[6] =
 {
 	"DROP TABLE subsys_port;",
 	"DROP TABLE host_subsys;",
+	"DROP INDEX port_addr",
 	"DROP TABLE port;",
 	"DROP TABLE subsys;",
 	"DROP TABLE host;",
