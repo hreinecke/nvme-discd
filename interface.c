@@ -181,8 +181,8 @@ void interface_delete(struct etcd_cdc_ctx *ctx, struct nvmet_port *port)
 
 	num_ports = discdb_count_subsys_port(port, ctx->port);
 	if (num_ports > 0) {
-		fprintf(stderr, "iface %d: ports still pending (%d)\n",
-			iface->portid, num_ports);
+		fprintf(stderr, "port %d: interface busy (%d ports pending)\n",
+			port->port_id, num_ports);
 		return;
 	}
 	pthread_mutex_lock(&interface_lock);
