@@ -128,7 +128,7 @@ int interface_create(struct etcd_cdc_ctx *ctx, struct nvmet_port *port)
 	else
 		iface->adrfam = AF_INET;
 	pthread_mutex_init(&iface->ep_mutex, NULL);
-	ret = discdb_add_port(&iface->port, NVME_NQN_DISC);
+	ret = discdb_add_port(&iface->port, NVME_NQN_CURR);
 	if (ret < 0) {
 		fprintf(stderr, "failed to create interface for %s:%s:%s\n",
 			iface->port.trtype, iface->port.traddr,
