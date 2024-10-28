@@ -269,8 +269,7 @@ static int remove_watch(int fd, struct etcd_cdc_ctx *ctx,
 		port = container_of(watcher,
 				    struct inotify_port,
 				    watcher);
-		interface_delete(ctx, port->port.trtype, port->port.traddr,
-				 port->port.adrfam);
+		interface_delete(ctx, &port->port);
 		discdb_del_port(&port->port);
 		free(port);
 		break;
@@ -538,8 +537,7 @@ static void watch_port(int fd, struct etcd_cdc_ctx *ctx,
 			free(port);
 		return;
 	}
-	interface_create(ctx, port->port.trtype, port->port.traddr,
-			 port->port.adrfam);
+	interface_create(ctx, &port->port);
 
 	strcpy(subsys_dir, port->watcher.dirname);
 	strcat(subsys_dir, "/subsystems");
@@ -640,6 +638,8 @@ static void watch_subsys(int fd, struct etcd_cdc_ctx *ctx,
 		return;
 	INIT_LIST_HEAD(&subsys->hosts);
 	strcpy(subsys->subsys.subsysnqn, subnqn);
+	sprintf(subsys->watcher.dirname, "%s/%s",
+		subsys_dir, subnqn);
 
 	attr_read_int(subsys->watcher.dirname,
 		      "attr_allow_any_host",
@@ -651,8 +651,6 @@ static void watch_subsys(int fd, struct etcd_cdc_ctx *ctx,
 		return;
 	}
 
-	sprintf(subsys->watcher.dirname, "%s/%s",
-		subsys_dir, subnqn);
 	subsys->watcher.type = TYPE_SUBSYS;
 	watcher = add_watch(fd, &subsys->watcher, IN_MODIFY | IN_DELETE_SELF);
 	if (watcher) {
@@ -811,9 +809,7 @@ int process_inotify_event(int fd, struct etcd_cdc_ctx *ctx,
 				list_del_init(&watcher->entry);
 				free(watcher);
 			}
-			interface_delete(ctx, port->port.trtype,
-					 port->port.traddr,
-					 port->port.trsvcid);
+			interface_delete(ctx, &port->port);
 			discdb_del_port(&port->port);
 			free(port);
 			break;

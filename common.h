@@ -165,9 +165,7 @@ int handle_request(struct endpoint *ep, struct nvme_command *cmd);
 int handle_data(struct endpoint *ep, struct ep_qe *qe, int res);
 int endpoint_update_qdepth(struct endpoint *ep, int qsize);
 
-int interface_create(struct etcd_cdc_ctx *ctx, char *trtype,
-		     char *traddr, char *adrfam);
-void interface_delete(struct etcd_cdc_ctx *ctx, char *trtype,
-		      char *traddr, char *adrfam);
+int interface_create(struct etcd_cdc_ctx *ctx, struct nvmet_port *port);
+void interface_delete(struct etcd_cdc_ctx *ctx, struct nvmet_port *port);
 
 #endif

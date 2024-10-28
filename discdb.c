@@ -515,6 +515,47 @@ int discdb_del_subsys_port(struct nvmet_subsys *subsys, struct nvmet_port *port)
 	return ret;
 }
 
+static char count_subsys_port_sql[] =
+	"SELECT count(p.portid) AS portnum "
+	"FROM subsys_port AS sp "
+	"INNER JOIN subsys AS s ON s.id = sp.subsys_id "
+	"INNER JOIN port AS p ON p.portid = sp.port_id "
+	"WHERE p.trtype = '%s' AND p.traddr = '%s' AND p.trsvcid != '%d';";
+
+
+int discdb_count_subsys_port(struct nvmet_port *port, int trsvcid)
+{
+	char *sql, *errmsg;
+	struct sql_int_value_parm parm = {
+		.col = "portnum",
+		.val = 0,
+		.done = 0,
+	};
+	int ret;
+
+	ret = asprintf(&sql, count_subsys_port_sql, port->trtype,
+		       port->traddr, trsvcid);
+	if (ret < 0)
+		return ret;
+	ret = sqlite3_exec(nvme_db, sql, sql_int_value_cb,
+			   &parm, &errmsg);
+	if (ret != SQLITE_OK) {
+		fprintf(stderr, "SQL error executing %s\n", sql);
+		fprintf(stderr, "SQL error: %s\n", errmsg);
+		sqlite3_free(errmsg);
+		ret = -EINVAL;
+	}
+	free(sql);
+	if (parm.done > 0) {
+		ret = parm.val;
+	} else if (parm.done < 0) {
+		ret = parm.done;
+	} else {
+		ret = 0;
+	}
+	return ret;
+}
+
 struct sql_disc_entry_parm {
 	u8 *buffer;
 	int cur;

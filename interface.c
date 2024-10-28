@@ -81,23 +81,22 @@ static void *interface_thread(void *arg)
 	return NULL;
 }
 
-int interface_create(struct etcd_cdc_ctx *ctx, char *trtype,
-		     char *traddr, char *adrfam)
+int interface_create(struct etcd_cdc_ctx *ctx, struct nvmet_port *port)
 {
 	struct interface *iface;
 	pthread_attr_t pthread_attr;
 	int ret = 0;
 
-	if (strcmp(trtype, "tcp")) {
+	if (strcmp(port->trtype, "tcp")) {
 		printf("skip interface with transport type '%s'\n",
-		       trtype);
+		       port->trtype);
 		return 0;
 	}
 	pthread_mutex_lock(&interface_lock);
 	list_for_each_entry(iface, &interface_list, node) {
-		if (strcmp(iface->port.traddr, traddr))
+		if (strcmp(iface->port.traddr, port->traddr))
 			continue;
-		if (strcmp(iface->port.adrfam, adrfam))
+		if (strcmp(iface->port.adrfam, port->adrfam))
 			continue;
 		fprintf(stderr, "iface %d: duplicate interface requested\n",
 			iface->portid);
@@ -120,11 +119,11 @@ int interface_create(struct etcd_cdc_ctx *ctx, char *trtype,
 	pthread_mutex_init(&iface->ep_mutex, NULL);
 	iface->listenfd = -1;
 	iface->ctx = ctx;
-	strcpy(iface->port.trtype, trtype);
-	strcpy(iface->port.traddr, traddr);
-	strcpy(iface->port.adrfam, adrfam);
+	strcpy(iface->port.trtype, port->trtype);
+	strcpy(iface->port.traddr, port->traddr);
+	strcpy(iface->port.adrfam, port->adrfam);
 	sprintf(iface->port.trsvcid, "%d", ctx->port);
-	if (!strcmp(adrfam, "ipv6"))
+	if (!strcmp(port->adrfam, "ipv6"))
 		iface->adrfam = AF_INET6;
 	else
 		iface->adrfam = AF_INET;
@@ -175,16 +174,22 @@ static void interface_free(struct interface *iface)
 	free(iface);
 }
 
-void interface_delete(struct etcd_cdc_ctx *ctx, char *trtype,
-		      char *traddr, char *adrfam)
+void interface_delete(struct etcd_cdc_ctx *ctx, struct nvmet_port *port)
 {
 	struct interface *iface = NULL, *tmp;
+	int num_ports;
 
+	num_ports = discdb_count_subsys_port(port, ctx->port);
+	if (num_ports > 0) {
+		fprintf(stderr, "iface %d: ports still pending (%d)\n",
+			iface->portid, num_ports);
+		return;
+	}
 	pthread_mutex_lock(&interface_lock);
 	list_for_each_entry(tmp, &interface_list, node) {
-		if (!strcmp(tmp->port.trtype, trtype) &&
-		    !strcmp(tmp->port.traddr, traddr) &&
-		    !strcmp(tmp->port.adrfam, adrfam)) {
+		if (!strcmp(tmp->port.trtype, port->trtype) &&
+		    !strcmp(tmp->port.traddr, port->traddr) &&
+		    !strcmp(tmp->port.adrfam, port->adrfam)) {
 			iface = tmp;
 			break;
 		}
@@ -197,6 +202,7 @@ void interface_delete(struct etcd_cdc_ctx *ctx, char *trtype,
 
 	fprintf(stderr, "iface %d: terminating\n",
 		iface->portid);
+	discdb_del_subsys_port(&iface->ctx->subsys, &iface->port);
 	if (iface->pthread)
 		pthread_kill(iface->pthread, SIGTERM);
 	printf("%s: %s addr %s:%s\n", __func__,
