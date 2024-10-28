@@ -37,10 +37,6 @@
 #define KATO_INTERVAL	1000	/* in ms as per spec */
 #define RETRY_COUNT	120	/* 2 min; value is multiplied with kato interval */
 
-
-#define ADRFAM_STR_IPV4 "ipv4"
-#define ADRFAM_STR_IPV6 "ipv6"
-
 #define IPV4_LEN		4
 #define IPV4_OFFSET		4
 #define IPV4_DELIM		"."
@@ -142,16 +138,13 @@ struct interface {
 
 struct etcd_cdc_ctx {
 	char *proto;
-	char *host;
 	int port;
-	char *nqn;
 	char *configfs;
-	char *prefix;
 	char *dbfile;
-	int genctr;
 	int ttl;
 	int debug;
-	bool disconnect_ctrls;
+	int tls;
+	struct nvmet_host host;
 };
 
 extern int tcp_debug;

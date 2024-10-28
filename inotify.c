@@ -353,6 +353,12 @@ static void watch_host(int fd, struct etcd_cdc_ctx *ctx,
 		return;
 
 	strcpy(host->host.hostnqn, hostnqn);
+	if (discdb_add_host(&host->host) < 0) {
+		fprintf(stderr, "%s: failed to insert host %s\n",
+			__func__, hostnqn);
+		free(host);
+		return;
+	}
 	sprintf(host->watcher.dirname, "%s/%s",
 		hosts_dir, hostnqn);
 	host->watcher.type = TYPE_HOST;
@@ -362,7 +368,6 @@ static void watch_host(int fd, struct etcd_cdc_ctx *ctx,
 			free(host);
 		return;
 	}
-	discdb_add_host(&host->host);
 }
 
 static int port_read_attr(struct inotify_port *p, char *attr)
@@ -636,6 +641,16 @@ static void watch_subsys(int fd, struct etcd_cdc_ctx *ctx,
 	INIT_LIST_HEAD(&subsys->hosts);
 	strcpy(subsys->subsys.subsysnqn, subnqn);
 
+	attr_read_int(subsys->watcher.dirname,
+		      "attr_allow_any_host",
+		      &subsys->subsys.allow_any);
+	if (discdb_add_subsys(&subsys->subsys) < 0) {
+		fprintf(stderr, "%s: failed to insert subsys %s\n",
+			__func__, subnqn);
+		free(subsys);
+		return;
+	}
+
 	sprintf(subsys->watcher.dirname, "%s/%s",
 		subsys_dir, subnqn);
 	subsys->watcher.type = TYPE_SUBSYS;
@@ -646,10 +661,6 @@ static void watch_subsys(int fd, struct etcd_cdc_ctx *ctx,
 			return;
 		}
 	}
-	attr_read_int(subsys->watcher.dirname,
-		      "attr_allow_any_host",
-		      &subsys->subsys.allow_any);
-	discdb_add_subsys(&subsys->subsys);
 
 	/*
 	 * Use the discovery NQN as host nqn when 'allow_any' is set.

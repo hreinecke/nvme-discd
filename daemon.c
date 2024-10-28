@@ -53,34 +53,27 @@ int parse_opts(struct etcd_cdc_ctx *ctx, int argc, char *argv[])
 	struct option getopt_arg[] = {
 		{"configfs", required_argument, 0, 'c'},
 		{"port", required_argument, 0, 'p'},
-		{"host", required_argument, 0, 'h'},
-		{"ssl", no_argument, 0, 's'},
+		{"tls", no_argument, 0, 't'},
 		{"nqn", required_argument, 0, 'n'},
 		{"verbose", no_argument, 0, 'v'},
 	};
 	char c;
 	int getopt_ind;
 
-	while ((c = getopt_long(argc, argv, "c:e:n:p:h:st:v",
+	while ((c = getopt_long(argc, argv, "c:e:n:p:st:v",
 				getopt_arg, &getopt_ind)) != -1) {
 		switch (c) {
 		case 'c':
 			ctx->configfs = optarg;
 			break;
-		case 'e':
-			ctx->prefix = optarg;
-			break;
-		case 'h':
-			ctx->host = optarg;
-			break;
 		case 'n':
-			ctx->nqn = optarg;
+			strcpy(ctx->host.hostnqn, optarg);
 			break;
 		case 'p':
 			ctx->port = atoi(optarg);
 			break;
-		case 's':
-			ctx->proto = "https";
+		case 't':
+			ctx->tls++;
 			break;
 		case 'v':
 			ctx->debug++;
@@ -105,9 +98,9 @@ int main (int argc, char *argv[])
 	}
 	ctx->configfs = default_configfs;
 	ctx->ttl = 10;
-	ctx->genctr = 1;
 	ctx->dbfile = default_dbfile;
 	ctx->port = 8009;
+	strcpy(ctx->host.hostnqn, NVME_DISC_SUBSYS_NAME);
 
 	parse_opts(ctx, argc, argv);
 
@@ -115,14 +108,17 @@ int main (int argc, char *argv[])
 		cmd_debug = 1;
 	if (ctx->debug > 1)
 		tcp_debug = 1;
-	if (!ctx->nqn)
-		ctx->nqn = NVME_DISC_SUBSYS_NAME;
 
 	if (discdb_open(ctx->dbfile)) {
 		ret = 1;
 		goto out_free_ctx;
 	}
 
+	if (discdb_add_host(&ctx->host) < 0) {
+		fprintf(stderr, "failed to insert default host %s\n",
+			ctx->host.hostnqn);
+		goto out_close_db;
+	}
 	pthread_attr_init(&pthread_attr);
 	ret = pthread_create(&inotify_thread, &pthread_attr,
 			     inotify_loop, ctx);
@@ -131,7 +127,7 @@ int main (int argc, char *argv[])
 		inotify_thread = 0;
 		fprintf(stderr, "failed to create inotify pthread: %d\n", ret);
 		ret = 0;
-		goto out_close_db;
+		goto out_del_host;
 	}
 
 	sigemptyset(&sigmask);
@@ -194,6 +190,8 @@ int main (int argc, char *argv[])
 	close(signal_fd);
 out_join:
 	pthread_join(inotify_thread, NULL);
+out_del_host:
+	discdb_del_host(&ctx->host);
 out_close_db:
 	discdb_close(ctx->dbfile);
 out_free_ctx:

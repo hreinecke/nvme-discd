@@ -56,6 +56,7 @@ static int sql_exec_simple(const char *sql_str)
 		fprintf(stderr, "SQL error executing %s\n", sql_str);
 		fprintf(stderr, "SQL error: %s\n", errmsg);
 		sqlite3_free(errmsg);
+		ret = (ret == SQLITE_BUSY) ? -EBUSY : -EINVAL;
 	}
 	return ret;
 }
