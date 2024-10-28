@@ -72,8 +72,10 @@ static int sql_int_value_cb(void *argp, int argc, char **argv, char **colname)
 	struct sql_int_value_parm *parm = argp;
 	int i;
 
-	if (parm->done != 0)
+	if (parm->done != 0) {
+		parm->done = -ENOTUNIQ;
 		return 0;
+	}
 
 	for (i = 0; i < argc; i++) {
 		char *eptr = NULL;
@@ -90,7 +92,7 @@ static int sql_int_value_cb(void *argp, int argc, char **argv, char **colname)
 		}
 		parm->val = strtol(argv[i], &eptr, 10);
 		if (argv[i] == eptr) {
-			parm->done = -EINVAL;
+			parm->done = -EDOM;
 			break;
 		}
 		parm->done = 1;
@@ -446,12 +448,6 @@ static char add_subsys_port_sql[] =
 	"SELECT subsys.id, port.portid FROM subsys, port "
 	"WHERE subsys.nqn LIKE '%s' AND port.portid = '%d';";
 
-static char select_subsys_port_sql[] =
-	"SELECT s.nqn, p.portid, p.trtype, p.traddr, p.adrfam "
-	"FROM subsys_port AS sp "
-	"INNER JOIN subsys AS s ON s.id = sp.subsys_id "
-	"INNER JOIN port AS p ON p.portid = sp.port_id;";
-
 static char update_genctr_host_subsys_sql[] =
 	"UPDATE host SET genctr = genctr + 1 "
 	"FROM "
@@ -471,8 +467,6 @@ int discdb_add_subsys_port(struct nvmet_subsys *subsys, struct nvmet_port *port)
 		return ret;
 	ret = sql_exec_simple(sql);
 	free(sql);
-	printf("Contents of 'subsys_port':\n");
-	ret = sql_exec_simple(select_subsys_port_sql);
 
 	ret = asprintf(&sql, update_genctr_host_subsys_sql,
 		       subsys->subsysnqn);
@@ -543,7 +537,7 @@ int discdb_count_subsys_port(struct nvmet_port *port, int trsvcid)
 		fprintf(stderr, "SQL error executing %s\n", sql);
 		fprintf(stderr, "SQL error: %s\n", errmsg);
 		sqlite3_free(errmsg);
-		ret = -EINVAL;
+		parm.done = -EINVAL;
 	}
 	free(sql);
 	if (parm.done > 0) {
@@ -762,6 +756,7 @@ int discdb_host_genctr(const char *hostnqn)
 		fprintf(stderr, "SQL error executing %s\n", sql);
 		fprintf(stderr, "SQL error: %s\n", errmsg);
 		sqlite3_free(errmsg);
+		parm.done = -EINVAL;
 	}
 	free(sql);
 	if (parm.done < 0) {
