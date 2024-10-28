@@ -57,7 +57,8 @@ static int sql_exec_simple(const char *sql_str)
 		fprintf(stderr, "SQL error: %s\n", errmsg);
 		sqlite3_free(errmsg);
 		ret = (ret == SQLITE_BUSY) ? -EBUSY : -EINVAL;
-	}
+	} else
+		ret = 0;
 	return ret;
 }
 
@@ -129,6 +130,8 @@ int discdb_init(void)
 
 	for (i = 0; i < 6; i++) {
 		ret = sql_exec_simple(init_sql[i]);
+		if (ret)
+			break;
 	}
 	return ret;
 }
@@ -766,13 +769,17 @@ int discdb_open(const char *filename)
 
 	ret = sqlite3_open(filename, &nvme_db);
 	if (ret) {
-		fprintf(stderr, "Can't open database: %sj\n",
+		fprintf(stderr, "Can't open database: %s\n",
 			sqlite3_errmsg(nvme_db));
 		sqlite3_close(nvme_db);
 		return -ENOENT;
 	}
-	discdb_init();
-	return 0;
+	ret = discdb_init();
+	if (ret) {
+		fprintf(stderr, "Can't initialize database, error %d\n", ret);
+		sqlite3_close(nvme_db);
+	}
+	return ret;
 }
 
 void discdb_close(const char *filename)
