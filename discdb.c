@@ -646,7 +646,7 @@ static int sql_disc_entry_cb(void *argp, int argc, char **argv, char **colname)
 				entry->treq = NVMF_TREQ_NOT_REQUIRED;
 			}
 		} else if (!strcmp(colname[i], "tsas")) {
-			if (arg_len && strcmp(argv[i], "tls13")) {
+			if (arg_len && !strcmp(argv[i], "tls13")) {
 				entry->tsas.tcp.sectype =
 					NVMF_TCP_SECTYPE_TLS13;
 			} else {
