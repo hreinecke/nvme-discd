@@ -104,8 +104,10 @@ int interface_create(struct etcd_cdc_ctx *ctx, char *trtype,
 		ret = -EBUSY;
 		break;
 	}
-	if (ret < 0)
+	if (ret < 0) {
+		iface = NULL;
 		goto out_unlock;
+	}
 
 	iface = malloc(sizeof(struct interface));
 	if (!iface) {
@@ -133,6 +135,7 @@ int interface_create(struct etcd_cdc_ctx *ctx, char *trtype,
 			iface->port.trtype, iface->port.traddr,
 			iface->port.trsvcid);
 		free(iface);
+		iface = NULL;
 		goto out_unlock;
 	}
 	iface->portid = iface->port.port_id;
@@ -143,6 +146,7 @@ int interface_create(struct etcd_cdc_ctx *ctx, char *trtype,
 	pthread_attr_init(&pthread_attr);
 	ret = pthread_create(&iface->pthread, &pthread_attr,
 			     interface_thread, iface);
+	pthread_attr_destroy(&pthread_attr);
 	if (ret) {
 		iface->pthread = 0;
 		fprintf(stderr, "iface %d: failed to start iface, error %d\n",
@@ -150,10 +154,12 @@ int interface_create(struct etcd_cdc_ctx *ctx, char *trtype,
 		list_del_init(&iface->node);
 		discdb_del_port(&iface->port);
 		free(iface);
+		iface = NULL;
 	}
-	pthread_attr_destroy(&pthread_attr);
 out_unlock:
 	pthread_mutex_unlock(&interface_lock);
+	if (iface)
+		discdb_add_subsys_port(&ctx->subsys, &iface->port);
 	return ret;
 }
 

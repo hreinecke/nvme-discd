@@ -145,6 +145,7 @@ struct etcd_cdc_ctx {
 	int debug;
 	int tls;
 	struct nvmet_host host;
+	struct nvmet_subsys subsys;
 };
 
 extern int tcp_debug;

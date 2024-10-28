@@ -192,7 +192,7 @@ static int handle_connect(struct endpoint *ep, struct ep_qe *qe,
 	ep->qid = qid;
 
 	if (strcmp(connect->subsysnqn, NVME_DISC_SUBSYS_NAME) &&
-	    strcmp(connect->subsysnqn, ep->iface->ctx->nqn)) {
+	    strcmp(connect->subsysnqn, ep->iface->ctx->subsys.subsysnqn)) {
 		ctrl_err(ep, "subsystem '%s' not found",
 		       connect->subsysnqn);
 		return NVME_SC_CONNECT_INVALID_HOST;
@@ -278,7 +278,7 @@ static int handle_identify_ctrl(struct endpoint *ep, u8 *id_buf, u64 len)
 	id.kas = ep->kato_interval / 100; /* KAS is in units of 100 msecs */
 
 	id.cntrltype = ep->ctrl->ctrl_type;
-	strcpy(id.subnqn, ep->iface->ctx->nqn);
+	strcpy(id.subnqn, ep->iface->ctx->subsys.subsysnqn);
 	id.maxcmd = htole16(ep->qsize);
 
 	if (len > sizeof(id))

@@ -67,7 +67,7 @@ int parse_opts(struct etcd_cdc_ctx *ctx, int argc, char *argv[])
 			ctx->configfs = optarg;
 			break;
 		case 'n':
-			strcpy(ctx->host.hostnqn, optarg);
+			strcpy(ctx->subsys.subsysnqn, optarg);
 			break;
 		case 'p':
 			ctx->port = atoi(optarg);
@@ -101,6 +101,7 @@ int main (int argc, char *argv[])
 	ctx->dbfile = default_dbfile;
 	ctx->port = 8009;
 	strcpy(ctx->host.hostnqn, NVME_DISC_SUBSYS_NAME);
+	strcpy(ctx->subsys.subsysnqn, NVME_DISC_SUBSYS_NAME);
 
 	parse_opts(ctx, argc, argv);
 
@@ -119,6 +120,13 @@ int main (int argc, char *argv[])
 			ctx->host.hostnqn);
 		goto out_close_db;
 	}
+	if (discdb_add_subsys(&ctx->subsys) < 0) {
+		fprintf(stderr, "failed to insert default subsys %s\n",
+			ctx->subsys.subsysnqn);
+		goto out_del_host;
+	}
+	discdb_add_host_subsys(&ctx->host, &ctx->subsys);
+
 	pthread_attr_init(&pthread_attr);
 	ret = pthread_create(&inotify_thread, &pthread_attr,
 			     inotify_loop, ctx);
@@ -127,7 +135,7 @@ int main (int argc, char *argv[])
 		inotify_thread = 0;
 		fprintf(stderr, "failed to create inotify pthread: %d\n", ret);
 		ret = 0;
-		goto out_del_host;
+		goto out_del_subsys;
 	}
 
 	sigemptyset(&sigmask);
@@ -190,6 +198,9 @@ int main (int argc, char *argv[])
 	close(signal_fd);
 out_join:
 	pthread_join(inotify_thread, NULL);
+	discdb_del_host_subsys(&ctx->host, &ctx->subsys);
+out_del_subsys:
+	discdb_del_subsys(&ctx->subsys);
 out_del_host:
 	discdb_del_host(&ctx->host);
 out_close_db:
