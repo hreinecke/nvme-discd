@@ -1050,7 +1050,6 @@ void cleanup_watcher(int fd, struct etcd_cdc_ctx *ctx)
 void *inotify_loop(void *arg)
 {
 	struct etcd_cdc_ctx *ctx = arg;
-	sigset_t sigmask;
 	int inotify_fd;
 	fd_set rfd;
 	struct timeval tmo;
@@ -1059,12 +1058,6 @@ void *inotify_loop(void *arg)
 
 	if (ctx->debug > 2)
 		debug_inotify = 1;
-
-	sigemptyset(&sigmask);
-	sigaddset(&sigmask, SIGPIPE);
-	sigaddset(&sigmask, SIGTERM);
-	sigaddset(&sigmask, SIGINT);
-	pthread_sigmask(SIG_BLOCK, &sigmask, NULL);
 
 	inotify_fd = inotify_init();
 	if (inotify_fd < 0) {

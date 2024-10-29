@@ -167,5 +167,6 @@ int endpoint_update_qdepth(struct endpoint *ep, int qsize);
 
 int interface_create(struct etcd_cdc_ctx *ctx, struct nvmet_port *port);
 void interface_delete(struct etcd_cdc_ctx *ctx, struct nvmet_port *port);
+void interface_stop(void);
 
 #endif

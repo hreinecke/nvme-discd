@@ -15,16 +15,9 @@ static void *interface_thread(void *arg)
 {
 	struct interface *iface = arg;
 	struct endpoint *ep, *_ep;
-	sigset_t set;
 	int id;
 	pthread_attr_t pthread_attr;
 	int ret;
-
-	sigemptyset(&set);
-	sigaddset(&set, SIGPIPE);
-	sigaddset(&set, SIGINT);
-	sigaddset(&set, SIGTERM);
-	pthread_sigmask(SIG_BLOCK, &set, NULL);
 
 	ret = tcp_init_listener(iface);
 	if (ret < 0) {
@@ -174,6 +167,17 @@ static void interface_free(struct interface *iface)
 	free(iface);
 }
 
+void interface_stop(void)
+{
+	struct interface *iface;
+
+	list_for_each_entry(iface, &interface_list, node) {
+		fprintf(stderr, "iface %d: terminating\n",
+			iface->portid);
+		pthread_kill(iface->pthread, SIGTERM);
+	}
+}
+
 void interface_delete(struct etcd_cdc_ctx *ctx, struct nvmet_port *port)
 {
 	struct interface *iface = NULL, *tmp;
@@ -200,11 +204,9 @@ void interface_delete(struct etcd_cdc_ctx *ctx, struct nvmet_port *port)
 	if (!iface)
 		return;
 
-	fprintf(stderr, "iface %d: terminating\n",
+	fprintf(stderr, "iface %d: deleting\n",
 		iface->portid);
 	discdb_del_subsys_port(&iface->ctx->subsys, &iface->port);
-	if (iface->pthread)
-		pthread_kill(iface->pthread, SIGTERM);
 	printf("%s: %s addr %s:%s\n", __func__,
 	       iface->port.adrfam, iface->port.traddr, iface->port.trsvcid);
 	interface_free(iface);

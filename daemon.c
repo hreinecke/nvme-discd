@@ -22,7 +22,6 @@
 
 #include <stdio.h>
 #include <signal.h>
-#include <sys/signalfd.h>
 #include <string.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -42,11 +41,43 @@
 static char *default_configfs = "/sys/kernel/config/nvmet";
 static char *default_dbfile = "nvme_discdb.sqlite";
 
+pthread_mutex_t signal_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t signal_cond = PTHREAD_COND_INITIALIZER;
+sigset_t sigmask;
+
 void *inotify_loop(void *);
 
 int stopped = 0;
 int tcp_debug = 0;
 int cmd_debug = 0;
+
+void *signal_loop(void *arg)
+{
+	int ret, signo;
+
+	while (!stopped) {
+		ret = sigwait(&sigmask, &signo);
+		if (ret != 0) {
+			fprintf(stderr, "sigwait failed with %d\n", errno);
+			break;
+		}
+		switch (signo) {
+		case SIGINT:
+		case SIGTERM:
+			printf("interrupted\n");
+			pthread_mutex_lock(&signal_lock);
+			stopped = 1;
+			pthread_mutex_unlock(&signal_lock);
+			pthread_cond_signal(&signal_cond);
+			break;
+		default:
+			printf("unhandled signal %d\n", signo);
+			break;
+		}
+	}
+	pthread_exit(NULL);
+	return NULL;
+}
 
 int parse_opts(struct etcd_cdc_ctx *ctx, int argc, char *argv[])
 {
@@ -86,9 +117,8 @@ int parse_opts(struct etcd_cdc_ctx *ctx, int argc, char *argv[])
 int main (int argc, char *argv[])
 {
 	struct etcd_cdc_ctx *ctx;
-	sigset_t sigmask;
-	int signal_fd, ret = 0;
-	pthread_t inotify_thread;
+	int ret = 0;
+	pthread_t signal_thread, inotify_thread;
 	pthread_attr_t pthread_attr;
 
 	ctx = malloc(sizeof(*ctx));
@@ -127,17 +157,6 @@ int main (int argc, char *argv[])
 	}
 	discdb_add_host_subsys(&ctx->host, &ctx->subsys);
 
-	pthread_attr_init(&pthread_attr);
-	ret = pthread_create(&inotify_thread, &pthread_attr,
-			     inotify_loop, ctx);
-	pthread_attr_destroy(&pthread_attr);
-	if (ret) {
-		inotify_thread = 0;
-		fprintf(stderr, "failed to create inotify pthread: %d\n", ret);
-		ret = 0;
-		goto out_del_subsys;
-	}
-
 	sigemptyset(&sigmask);
 	sigaddset(&sigmask, SIGINT);
 	sigaddset(&sigmask, SIGTERM);
@@ -145,61 +164,41 @@ int main (int argc, char *argv[])
 	if (pthread_sigmask(SIG_BLOCK, &sigmask, NULL) < 0) {
 		fprintf(stderr, "Couldn't block signals, error %d\n", errno);
 		ret = 1;
-		pthread_kill(inotify_thread, SIGTERM);
-		goto out_join;
+		goto out_del_subsys;
 	}
-	signal_fd = signalfd(-1, &sigmask, 0);
-	if (signal_fd < 0) {
-		fprintf(stderr, "Couldn't setup signal fd, error %d\n", errno);
+	ret = pthread_create(&signal_thread, NULL, signal_loop, NULL);
+	if (ret) {
+		signal_thread = 0;
+		fprintf(stderr, "Could not start signal thread\n");
 		ret = 1;
-		pthread_kill(inotify_thread, SIGTERM);
+		goto out_del_subsys;
+	}
+
+	pthread_attr_init(&pthread_attr);
+	ret = pthread_create(&inotify_thread, &pthread_attr,
+			     inotify_loop, ctx);
+	pthread_attr_destroy(&pthread_attr);
+	if (ret) {
+		inotify_thread = 0;
+		fprintf(stderr, "failed to create inotify pthread: %d\n", ret);
+		ret = 1;
+		pthread_kill(signal_thread, SIGTERM);
 		goto out_join;
 	}
 
-	for (;;) {
-		int rlen, ret;
-		fd_set rfd;
-		struct timeval tmo;
+	pthread_mutex_lock(&signal_lock);
+	while (!stopped)
+		pthread_cond_wait(&signal_cond, &signal_lock);
+	pthread_mutex_unlock(&signal_lock);
 
-		FD_ZERO(&rfd);
-		FD_SET(signal_fd, &rfd);
-		tmo.tv_sec = ctx->ttl / 5;
-		tmo.tv_usec = 0;
-		ret = select(signal_fd + 1, &rfd, NULL, NULL, &tmo);
-		if (ret < 0) {
-			if (errno == EINTR)
-				continue;
-			fprintf(stderr, "select returned %d\n", errno);
-			break;
-		}
-		if (ret == 0)
-			continue;
-		if (FD_ISSET(signal_fd, &rfd)) {
-			struct signalfd_siginfo fdsi;
+	interface_stop();
 
-			rlen = read(signal_fd, &fdsi, sizeof(fdsi));
-			if (rlen != sizeof(fdsi)) {
-				fprintf(stderr, "Couldn't read siginfo\n");
-				ret = 1;
-				break;
-			}
-			if (fdsi.ssi_signo == SIGINT ||
-			    fdsi.ssi_signo == SIGTERM) {
-				fprintf(stderr,
-					"signal %d received, terminating\n",
-					fdsi.ssi_signo);
-				stopped = 1;
-				pthread_kill(inotify_thread, SIGTERM);
-				break;
-			}
-		}
-	}
-
-	close(signal_fd);
-out_join:
+	pthread_kill(inotify_thread, SIGTERM);
 	pthread_join(inotify_thread, NULL);
-	discdb_del_host_subsys(&ctx->host, &ctx->subsys);
+out_join:
+	pthread_join(signal_thread, NULL);
 out_del_subsys:
+	discdb_del_host_subsys(&ctx->host, &ctx->subsys);
 	discdb_del_subsys(&ctx->subsys);
 out_del_host:
 	discdb_del_host(&ctx->host);

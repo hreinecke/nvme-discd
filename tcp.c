@@ -332,51 +332,20 @@ out_free:
 
 int tcp_wait_for_connection(struct interface *iface, int timeout_ms)
 {
-	int epollfd;
-	struct epoll_event ev[2];
-	int sockfd, sigfd;
-	int ret = -ESHUTDOWN, n;
-	sigset_t sigmask;
-
-	epollfd = epoll_create(2);
-	if (epollfd < 0) {
-		fprintf(stderr, "iface %d: epoll create error %d\n",
-			iface->portid, errno);
-		return -errno;
-	}
-
-	ev[0].events = EPOLLIN;
-	ev[0].data.fd = iface->listenfd;
-	if (epoll_ctl(epollfd, EPOLL_CTL_ADD, iface->listenfd, &ev[0]) == -1) {
-		fprintf(stderr, "iface %d: failed to add listen fd, error %d\n",
-			iface->portid, errno);
-		close(epollfd);
-		return -errno;
-	}
-	sigemptyset(&sigmask);
-	sigaddset(&sigmask, SIGINT);
-	sigaddset(&sigmask, SIGTERM);
-	sigfd = signalfd(-1, &sigmask, 0);
-	if (sigfd < 0) {
-		fprintf(stderr, "iface %d: signalfd error %d\n",
-			iface->portid, errno);
-		close(epollfd);
-		return -errno;
-	}
-	ev[1].events = EPOLLIN;
-	ev[1].data.fd = sigfd;
-	if (epoll_ctl(epollfd, EPOLL_CTL_ADD, sigfd, &ev[1]) == -1) {
-		fprintf(stderr, "iface %d: failed to add signalfd, error %d\n",
-			iface->portid, errno);
-		close(sigfd);
-		close(epollfd);
-		return -errno;
-	}
+	int sockfd;
+	int ret = -ESHUTDOWN;
 
 	while (!stopped) {
-		ret = epoll_pwait(epollfd, ev, 2, timeout_ms, &sigmask);
+		fd_set rfd;
+		struct timeval tmo;
+
+		FD_ZERO(&rfd);
+		FD_SET(iface->listenfd, &rfd);
+		tmo.tv_sec = iface->ctx->ttl / 5;
+		tmo.tv_usec = 0;
+		ret = select(iface->listenfd + 1, &rfd, NULL, NULL, &tmo);
 		if (ret < 0) {
-			fprintf(stderr, "iface %d: epoll_wait error %d\n",
+			fprintf(stderr, "iface %d: select error %d\n",
 				iface->portid, errno);
 			ret = -errno;
 			break;
@@ -384,44 +353,21 @@ int tcp_wait_for_connection(struct interface *iface, int timeout_ms)
 		if (ret > 0)
 			break;
 	}
-	for (n = 0; n < ret; n++) {
-		if (ev[n].data.fd == sigfd) {
-			struct signalfd_siginfo fdsi;
-			size_t rlen;
 
-			rlen = read(sigfd, &fdsi, sizeof(fdsi));
-			if (rlen != sizeof(fdsi)) {
-				fprintf(stderr,
-					"iface %d: signalfd error\n",
-					iface->portid);
-				ret = -ENOMSG;
-			}
+	if (ret <= 0)
+		return ret ? ret : -ETIMEDOUT;
+
+	sockfd = accept(iface->listenfd, (struct sockaddr *) NULL,
+			NULL);
+	if (sockfd < 0) {
+		if (errno != EAGAIN)
 			fprintf(stderr,
-				"iface %d: signal %d received, terminating\n",
-				iface->portid, fdsi.ssi_signo);
-			ret = -EINTR;
-			break;
-		}
-	}
-	close(sigfd);
+				"iface %d: failed to accept error %d\n",
+				iface->portid, errno);
+		ret = -EAGAIN;
+	} else
+		ret = sockfd;
 
-	if (ret < 0)
-		goto out_close;
-
-	if (ret > 0) {
-		sockfd = accept(iface->listenfd, (struct sockaddr *) NULL,
-				NULL);
-		if (sockfd < 0) {
-			if (errno != EAGAIN)
-				fprintf(stderr,
-					"iface %d: failed to accept error %d\n",
-					iface->portid, errno);
-			ret = -EAGAIN;
-		} else
-			ret = sockfd;
-	}
-out_close:
-	close(epollfd);
 	return ret;
 }
 
