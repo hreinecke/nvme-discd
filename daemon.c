@@ -126,6 +126,7 @@ int main (int argc, char *argv[])
 		fprintf(stderr, "cannot allocate context\n");
 		exit(1);
 	}
+	memset(ctx, 0, sizeof(*ctx));
 	ctx->configfs = default_configfs;
 	ctx->ttl = 10;
 	ctx->dbfile = default_dbfile;

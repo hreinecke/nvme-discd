@@ -65,6 +65,7 @@ int tcp_create_endpoint(struct endpoint *ep, int id)
 		tcp_err(ep, "no memory");
 		return -ENOMEM;
 	}
+	memset(ep->send_pdu, 0, sizeof(union nvme_tcp_pdu));
 
 	ep->recv_pdu = malloc(sizeof(union nvme_tcp_pdu));
 	if (!ep->recv_pdu) {
@@ -73,6 +74,7 @@ int tcp_create_endpoint(struct endpoint *ep, int id)
 		tcp_err(ep, "no memory");
 		return -ENOMEM;
 	}
+	memset(ep->recv_pdu, 0, sizeof(union nvme_tcp_pdu));
 
 	ep->qes = calloc(NVMF_SQ_DEPTH, sizeof(struct ep_qe));
 	if (!ep->qes) {
@@ -128,6 +130,7 @@ struct ep_qe *tcp_acquire_tag(struct endpoint *ep, union nvme_tcp_pdu *pdu,
 						"Error allocating iovec base");
 					return NULL;
 				}
+				memset(qe->data, 0, len);
 				qe->data_pos = pos;
 				qe->data_len = len;
 				qe->iovec.iov_base = NULL;
@@ -216,6 +219,7 @@ int tcp_init_listener(struct interface *iface)
 	if (ai->ai_next)
 		fprintf(stderr, "iface %d: duplicate addresses\n",
 			iface->portid);
+	freeaddrinfo(ai);
 
 	ret = listen(listenfd, BACKLOG);
 	if (ret < 0) {

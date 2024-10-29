@@ -339,6 +339,7 @@ static int format_disc_log(void *data, u64 data_offset,
 		errno = ENOMEM;
 		return -1;
 	}
+	memset(log_buf, 0, log_len);
 	log_hdr = (struct nvmf_disc_rsp_page_hdr *)log_buf;
 	log_ptr = log_hdr->entries;
 
