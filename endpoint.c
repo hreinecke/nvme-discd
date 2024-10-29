@@ -154,7 +154,6 @@ retry:
 		return ret;
 	}
 
-	ep->state = CONNECTED;
 	return 0;
 }
 

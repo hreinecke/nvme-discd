@@ -244,8 +244,6 @@ void handle_disconnect(struct endpoint *ep, int shutdown)
 
 	tcp_destroy_endpoint(ep);
 
-	ep->state = DISCONNECTED;
-
 	if (ctrl) {
 		pthread_mutex_lock(&ctrl_mutex);
 		ctrl->num_endpoints--;

@@ -45,8 +45,6 @@
 #define IPV6_OFFSET		8
 #define IPV6_DELIM		":"
 
-enum { DISCONNECTED, CONNECTED };
-
 extern int stopped;
 
 struct nvmet_host {
@@ -99,7 +97,6 @@ struct endpoint {
 	union nvme_tcp_pdu *send_pdu;
 	int recv_state;
 	int qsize;
-	int state;
 	int qid;
 	int kato_countdown;
 	int kato_interval;
