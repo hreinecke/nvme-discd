@@ -27,3 +27,5 @@ discdb.c: common.h discdb.h
 interface: common.h discdb.h endpoint.h tcp.h
 tcp.c: common.h tcp.h nvme_tcp.h nvme.h types.h
 endpoint.c: common.h endpoint.h tcp.h
+cmds.c: common.h discdb.h tcp.h
+common.h: types.h list.h nvme.h nvme_tcp.h
