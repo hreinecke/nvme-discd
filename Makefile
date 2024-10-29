@@ -21,9 +21,9 @@ $(TEST): $(TEST_OBJS) $(B64)
 clean:
 	$(RM) $(TEST_OBJS) $(PRG_OBJS) $(DISC_OBJS) $(PRG) $(TEST) $(DISC)
 
-daemon.c: common.h list.h discdb.h
-inotify.c: list.h discdb.h
+daemon.c: common.h discdb.h
+inotify.c: common.h discdb.h
 discdb.c: common.h discdb.h
-interface: common.h discdb.h tcp.h
-tcp.c: common.h tcp.h
-endpoint.c: common.h endpoint.h
+interface: common.h discdb.h endpoint.h tcp.h
+tcp.c: common.h tcp.h nvme_tcp.h nvme.h types.h
+endpoint.c: common.h endpoint.h tcp.h

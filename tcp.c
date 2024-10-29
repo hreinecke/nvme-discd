@@ -3,14 +3,9 @@
 #include <stddef.h>
 #include <fcntl.h>
 #include <sys/socket.h>
-#include <sys/epoll.h>
-#include <sys/signalfd.h>
 #include <netinet/in.h>
 #include <netdb.h>
 
-#include "types.h"
-#include "nvme.h"
-#include "nvme_tcp.h"
 #include "common.h"
 #include "tcp.h"
 

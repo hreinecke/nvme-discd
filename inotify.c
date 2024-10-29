@@ -29,12 +29,10 @@
 #include <limits.h>
 #include <dirent.h>
 #include <sys/types.h>
-#include <sys/signalfd.h>
 #include <fcntl.h>
 
 #include <sys/inotify.h>
 
-#include "list.h"
 #include "common.h"
 #include "discdb.h"
 

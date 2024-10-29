@@ -48,7 +48,7 @@
 extern int stopped;
 
 struct nvmet_host {
-	char hostnqn[256];
+	char hostnqn[MAX_NQN_SIZE + 1];
 };
 
 struct nvmet_port {
@@ -62,7 +62,7 @@ struct nvmet_port {
 };
 
 struct nvmet_subsys {
-	char subsysnqn[256];
+	char subsysnqn[MAX_NQN_SIZE + 1];
 	int allow_any;
 };
 
@@ -70,7 +70,6 @@ struct ep_qe {
 	struct list_head node;
 	int tag;
 	struct endpoint *ep;
-	struct nsdev *ns;
 	union nvme_tcp_pdu pdu;
 	struct iovec iovec;
 	struct nvme_completion resp;
